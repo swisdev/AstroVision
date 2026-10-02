@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AstroVision // Celestial Observatory Hub</title>
+  <link rel="stylesheet" href="static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>★</text></svg>">
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- Top Header & Status -->
+    <header class="header-bar">
+      <div class="brand-section">
+        <div class="brand-radar">
+          <div class="radar-sweep"></div>
+          <div class="radar-core"></div>
+        </div>
+        <div>
+          <div class="brand-title">ASTRO<span>VISION</span></div>
+          <div class="brand-subtitle">Automated Celestial Tracking Hub // Mk-IV</div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="system-health">
+          <span class="health-dot"></span>
+          <span id="healthStatusText">SYSTEM OPTIMAL</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Dashboard Grid -->
+    <main class="dashboard-grid">
+
+      <!-- Left Column: Live Observatory Feed HUD -->
+      <section class="feed-column">
+        <div class="glass-card">
+          <div class="card-header">
+            <div class="card-heading">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="22" y1="12" x2="18" y2="12"></line>
+                <line x1="6" y1="12" x2="2" y2="12"></line>
+                <line x1="12" y1="6" x2="12" y2="2"></line>
+                <line x1="12" y1="22" x2="12" y2="18"></line>
+              </svg>
+              Live Observatory Feed HUD
+            </div>
+            <div id="targetBadge" class="target-badge searching">
+              <span class="badge-blip"></span>
+              <span id="targetBadgeText">SEARCHING</span>
+            </div>
+          </div>
+
+          <!-- Video Stream Container -->
+          <div class="video-hud-container" id="videoContainer">
+            <!-- Live Feed Image & Canvas Fallback -->
+            <img id="liveVideoFeed" class="video-stream-feed" src="/video_feed" alt="Live Camera Feed" onerror="handleStreamError(this)">
+            <canvas id="hudCanvas" class="video-fallback-canvas"></canvas>
+
+            <!-- Sci-Fi HUD Overlay Elements -->
+            <div class="hud-overlay">
+              <!-- Tactical Corner Brackets -->
+              <div class="corner-bracket top-left"></div>
+              <div class="corner-bracket top-right"></div>
+              <div class="corner-bracket bottom-left"></div>
+              <div class="corner-bracket bottom-right"></div>
+
+              <!-- Top Meta Readout -->
+              <div class="hud-top-meta">
+                <div class="hud-feed-tag">OPTIC: 320x240 // RES-LOW</div>
+                <div id="hudUtcTime" style="color: rgba(255,255,255,0.7);">UTC: --:--:--</div>
+                <div style="color: var(--neon-cyan);">MODE: PROPORTIONAL-P</div>
+              </div>
+
+              <!-- Reticle & Center Crosshair -->
+              <div class="hud-crosshair-center">
+                <div class="reticle-ring"></div>
+                <div class="reticle-inner-ring"></div>
+                <div class="crosshair-axis-x"></div>
+                <div class="crosshair-axis-y"></div>
+              </div>
+
+              <!-- Dynamic Target Lock Indicator Box -->
+              <div id="hudTargetBox" class="hud-target-indicator" style="display: none;">
+                <div id="targetLockLabel" class="target-lock-label">LOCKED: TARGET</div>
+              </div>
+
+              <!-- Bottom Meta Readout -->
+              <div class="hud-bottom-telemetry">
+                <div>AZ: <span id="hudPanAngle" style="color:var(--neon-cyan);">90.00°</span> | EL: <span id="hudTiltAngle" style="color:var(--neon-cyan);">90.00°</span></div>
+                <div>OFFSET: <span id="hudOffsetCoords" style="color:var(--neon-green);">ΔX: 0px / ΔY: 0px</span></div>
+                <div>SIGNAL: <span id="hudSignalQuality" style="color:var(--neon-cyan);">99.4%</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detection Log Table -->
+        <div class="glass-card log-table-container">
+          <div class="card-header">
+            <div class="card-heading">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+              </svg>
+              Telemetry Event Log <span id="eventCountBadge" style="color:var(--neon-cyan); margin-left:0.4rem; font-size:0.75rem;">(0)</span>
+            </div>
+            <button id="btnForwardLog" class="step-btn" title="Forward latest detection to remote receiver">
+              FORWARD EVENT
+            </button>
+          </div>
+
+          <div class="log-scroll-area">
+            <table class="cyber-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Classification</th>
+                  <th>Pan (X)</th>
+                  <th>Tilt (Y)</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody id="detectionLogBody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">
+                    Observatory awaiting detection signatures...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Controls, Telemetry & Servo Calibration -->
+      <section class="controls-layout">
+
+        <!-- Computer Vision Control Suite -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div class="card-heading">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+              Detection & CV Control Suite
+            </div>
+          </div>
+
+          <!-- Cyber Toggle Switches -->
+          <div class="toggle-group">
+            <div class="cyber-toggle-item">
+              <div>
+                <div class="toggle-label">Motion Detection Filter</div>
+                <div class="toggle-desc">Enable dynamic frame differencing</div>
+              </div>
+              <label class="switch-label">
+                <input type="checkbox" id="toggleMotionFilter" checked>
+                <span class="switch-track"></span>
+              </label>
+            </div>
+
+            <div class="cyber-toggle-item">
+              <div>
+                <div class="toggle-label">Bounding Box Overlay</div>
+                <div class="toggle-desc">Highlight detected celestial targets</div>
+              </div>
+              <label class="switch-label">
+                <input type="checkbox" id="toggleBoundingBoxes" checked>
+                <span class="switch-track"></span>
+              </label>
+            </div>
+
+            <div class="cyber-toggle-item">
+              <div>
+                <div class="toggle-label">Trajectory Vectors</div>
+                <div class="toggle-desc">Draw orbital & motion lines across frames</div>
+              </div>
+              <label class="switch-label">
+                <input type="checkbox" id="toggleTrajectories" checked>
+                <span class="switch-track"></span>
+              </label>
+            </div>
+
+            <div class="cyber-toggle-item">
+              <div>
+                <div class="toggle-label">Coordinates Display</div>
+                <div class="toggle-desc">Show target X/Y pixel offsets on feed</div>
+              </div>
+              <label class="switch-label">
+                <input type="checkbox" id="toggleCoordsDisplay" checked>
+                <span class="switch-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Glowing Sliders -->
+          <div class="sliders-group">
+            <div class="slider-container">
+              <div class="slider-meta">
+                <span>Detection Threshold</span>
+                <span id="thresholdValBadge" class="slider-val-badge">30</span>
+              </div>
+              <input type="range" id="sliderThreshold" class="cyber-range" min="1" max="255" value="30">
+            </div>
+
+            <div class="slider-container">
+              <div class="slider-meta">
+                <span>Min Contour Area (Noise Filter)</span>
+                <span id="contourValBadge" class="slider-val-badge">20 px²</span>
+              </div>
+              <input type="range" id="sliderContour" class="cyber-range" min="2" max="200" value="20">
+            </div>
+
+            <div class="slider-container">
+              <div class="slider-meta">
+                <span>Camera Gain / Brightness</span>
+                <span id="gainValBadge" class="slider-val-badge">50%</span>
+              </div>
+              <input type="range" id="sliderGain" class="cyber-range" min="1" max="100" value="50">
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetry & Servo Calibration Panel -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div class="card-heading">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+              </svg>
+              Telemetry & Servo Calibration
+            </div>
+          </div>
+
+          <!-- Digital Telemetry Grid -->
+          <div class="telemetry-grid">
+            <div class="telemetry-stat-box cyan-accent">
+              <div class="stat-label">Target Position</div>
+              <div class="stat-value" id="telemetryTargetPos">---, ---</div>
+            </div>
+
+            <div class="telemetry-stat-box">
+              <div class="stat-label">Velocity Est.</div>
+              <div class="stat-value" id="telemetryVelocity">0.0<span class="stat-unit">px/s</span></div>
+            </div>
+
+            <div class="telemetry-stat-box green-accent">
+              <div class="stat-label">Active Frame Rate</div>
+              <div class="stat-value" id="telemetryFps">10.0<span class="stat-unit">FPS</span></div>
+            </div>
+
+            <div class="telemetry-stat-box">
+              <div class="stat-label">Stream Latency</div>
+              <div class="stat-value" id="telemetryLatency">14<span class="stat-unit">ms</span></div>
+            </div>
+
+            <div class="telemetry-stat-box cyan-accent">
+              <div class="stat-label">Current Pan (X)</div>
+              <div class="stat-value" id="telemetryPan">90.00<span class="stat-unit">°</span></div>
+            </div>
+
+            <div class="telemetry-stat-box">
+              <div class="stat-label">Current Tilt (Y)</div>
+              <div class="stat-value" id="telemetryTilt">90.00<span class="stat-unit">°</span></div>
+            </div>
+          </div>
+
+          <!-- Manual Servo Jog Pad -->
+          <div class="jog-pad-wrapper">
+            <div class="jog-step-selector">
+              <span class="step-label">JOG STEP:</span>
+              <button class="step-btn" data-step="1">1°</button>
+              <button class="step-btn active" data-step="2">2°</button>
+              <button class="step-btn" data-step="5">5°</button>
+              <button class="step-btn" data-step="10">10°</button>
+            </div>
+
+            <!-- 4-Axis Directional D-Pad -->
+            <div class="dpad-container">
+              <button class="dpad-btn up" id="jogUpBtn" title="Tilt Up (Pitch +)">
+                ▲
+              </button>
+              <button class="dpad-btn left" id="jogLeftBtn" title="Pan Left (Yaw -)">
+                ◀
+              </button>
+              <div class="dpad-center-hub">
+                <span>AXIS</span>
+              </div>
+              <button class="dpad-btn right" id="jogRightBtn" title="Pan Right (Yaw +)">
+                ▶
+              </button>
+              <button class="dpad-btn down" id="jogDownBtn" title="Tilt Down (Pitch -)">
+                ▼
+              </button>
+            </div>
+
+            <!-- Reset Center Calibration Button -->
+            <button class="btn-reset-center" id="btnResetCenter">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              RESET SCOPE TO CENTER (90°, 90°)
+            </button>
+          </div>
+        </div>
+
+      </section>
+    </main>
+
+    <!-- Footer System Status -->
+    <footer class="hub-footer">
+      <div>ASTROVISION OBS-HUB // CORE: <code>PYTHON 3 + OPENCV + FLASK</code></div>
+      <div>PIGPIO HARDWARE PWM // ENDPOINTS: <code>/api/status</code> &middot; <code>/api/servo/jog</code></div>
+    </footer>
+
+  </div>
+
+  <!-- Interactive Dashboard Controller -->
+  <script>
+    (function () {
+      'use strict';
+
+      // --- State & Settings ---
+      let jogStep = 2.0;
+      let lastTarget = null;
+      let lastTargetTime = performance.now();
+      let velocity = 0.0;
+      let trajectoryHistory = [];
+      let streamAvailable = true;
+
+      // DOM Elements
+      const targetBadge = document.getElementById('targetBadge');
+      const targetBadgeText = document.getElementById('targetBadgeText');
+      const hudPanAngle = document.getElementById('hudPanAngle');
+      const hudTiltAngle = document.getElementById('hudTiltAngle');
+      const hudOffsetCoords = document.getElementById('hudOffsetCoords');
+      const hudTargetBox = document.getElementById('hudTargetBox');
+      const targetLockLabel = document.getElementById('targetLockLabel');
+      const hudUtcTime = document.getElementById('hudUtcTime');
+      
+      const telemetryTargetPos = document.getElementById('telemetryTargetPos');
+      const telemetryVelocity = document.getElementById('telemetryVelocity');
+      const telemetryFps = document.getElementById('telemetryFps');
+      const telemetryLatency = document.getElementById('telemetryLatency');
+      const telemetryPan = document.getElementById('telemetryPan');
+      const telemetryTilt = document.getElementById('telemetryTilt');
+      
+      const detectionLogBody = document.getElementById('detectionLogBody');
+      const eventCountBadge = document.getElementById('eventCountBadge');
+      
+      const canvas = document.getElementById('hudCanvas');
+      const ctx = canvas.getContext('2d');
+      const videoFeed = document.getElementById('liveVideoFeed');
+
+      // Toggles & Sliders
+      const toggleMotion = document.getElementById('toggleMotionFilter');
+      const toggleBoxes = document.getElementById('toggleBoundingBoxes');
+      const toggleTrajectories = document.getElementById('toggleTrajectories');
+      const toggleCoords = document.getElementById('toggleCoordsDisplay');
+      
+      const sliderThreshold = document.getElementById('sliderThreshold');
+      const sliderContour = document.getElementById('sliderContour');
+      const sliderGain = document.getElementById('sliderGain');
+      const thresholdValBadge = document.getElementById('thresholdValBadge');
+      const contourValBadge = document.getElementById('contourValBadge');
+      const gainValBadge = document.getElementById('gainValBadge');
+
+      // --- UTC Clock ---
+      function updateClock() {
+        const now = new Date();
+        hudUtcTime.textContent = 'UTC: ' + now.toISOString().substring(11, 19);
+      }
+      setInterval(updateClock, 1000);
+      updateClock();
+
+      // --- Stream Fallback Handler ---
+      window.handleStreamError = function (img) {
+        streamAvailable = false;
+        img.style.display = 'none';
+      };
+
+      // --- Canvas Sizing & Space Simulation ---
+      function resizeCanvas() {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      // Simulated star background if video feed is unavailable
+      const simStars = Array.from({ length: 50 }, () => ({
+        x: Math.random(),
+        y: Math.random(),
+        r: Math.random() * 1.5 + 0.5,
+        alpha: Math.random() * 0.7 + 0.2
+      }));
+
+      // Render loop for simulated background or vector overlays
+      function renderOverlay() {
+        const w = canvas.width;
+        const h = canvas.height;
+        if (!w || !h) {
+          requestAnimationFrame(renderOverlay);
+          return;
+        }
+
+        ctx.clearRect(0, 0, w, h);
+
+        // If no camera feed is running, draw simulated starfield
+        if (!streamAvailable) {
+          ctx.fillStyle = '#05070D';
+          ctx.fillRect(0, 0, w, h);
+
+          // Stars
+          simStars.forEach(s => {
+            ctx.beginPath();
+            ctx.arc(s.x * w, s.y * h, s.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(0, 240, 255, ${s.alpha})`;
+            ctx.fill();
+          });
+        }
+
+        // Draw Trajectory Vectors if enabled
+        if (toggleTrajectories.checked && trajectoryHistory.length > 1) {
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+
+          for (let i = 0; i < trajectoryHistory.length; i++) {
+            const pt = trajectoryHistory[i];
+            const px = (pt.x / 320) * w;
+            const py = (pt.y / 240) * h;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // Draw Bounding Box & Target Callout on canvas
+        if (lastTarget && toggleBoxes.checked) {
+          const tx = (lastTarget.x / 320) * w;
+          const ty = (lastTarget.y / 240) * h;
+          const boxSize = 44;
+
+          ctx.strokeStyle = lastTarget.object_type === 'moving_celestial' ? '#FF3366' : '#00F0FF';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(tx - boxSize / 2, ty - boxSize / 2, boxSize, boxSize);
+
+          if (toggleCoords.checked) {
+            ctx.font = '10px "JetBrains Mono"';
+            ctx.fillStyle = lastTarget.object_type === 'moving_celestial' ? '#FF3366' : '#00F0FF';
+            ctx.fillText(`X:${lastTarget.x} Y:${lastTarget.y}`, tx + boxSize / 2 + 6, ty + 4);
+          }
+        }
+
+        requestAnimationFrame(renderOverlay);
+      }
+      requestAnimationFrame(renderOverlay);
+
+      // --- Telemetry Polling ---
+      async function pollTelemetry() {
+        const start = performance.now();
+        try {
+          const res = await fetch('/api/status');
+          const data = await res.json();
+          const latency = Math.round(performance.now() - start);
+          telemetryLatency.innerHTML = `${latency}<span class="stat-unit">ms</span>`;
+
+          // Tracking State
+          if (data.tracking) {
+            targetBadge.className = 'target-badge locked';
+            targetBadgeText.textContent = 'LOCKED';
+          } else {
+            targetBadge.className = 'target-badge searching';
+            targetBadgeText.textContent = 'SEARCHING';
+          }
+
+          // Angles
+          const pan = parseFloat(data.pan_angle).toFixed(2);
+          const tilt = parseFloat(data.tilt_angle).toFixed(2);
+          hudPanAngle.textContent = `${pan}°`;
+          hudTiltAngle.textContent = `${tilt}°`;
+          telemetryPan.innerHTML = `${pan}<span class="stat-unit">°</span>`;
+          telemetryTilt.innerHTML = `${tilt}<span class="stat-unit">°</span>`;
+
+          // FPS
+          telemetryFps.innerHTML = `${parseFloat(data.fps || 10).toFixed(1)}<span class="stat-unit">FPS</span>`;
+
+          // Target processing & Velocity calculation
+          if (data.target) {
+            const now = performance.now();
+            if (lastTarget) {
+              const dt = (now - lastTargetTime) / 1000.0;
+              if (dt > 0) {
+                const dx = data.target.x - lastTarget.x;
+                const dy = data.target.y - lastTarget.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                velocity = (dist / dt).toFixed(1);
+              }
+            }
+            lastTarget = data.target;
+            lastTargetTime = now;
+
+            trajectoryHistory.push({ x: data.target.x, y: data.target.y });
+            if (trajectoryHistory.length > 25) trajectoryHistory.shift();
+
+            // Offset calculations (center is 160, 120)
+            const offX = data.target.x - 160;
+            const offY = data.target.y - 120;
+            hudOffsetCoords.textContent = `ΔX: ${offX >= 0 ? '+' : ''}${offX}px / ΔY: ${offY >= 0 ? '+' : ''}${offY}px`;
+            telemetryTargetPos.textContent = `${data.target.x}, ${data.target.y}`;
+            telemetryVelocity.innerHTML = `${velocity}<span class="stat-unit">px/s</span>`;
+
+            // HUD Indicator position
+            const w = canvas.width;
+            const h = canvas.height;
+            if (w && h) {
+              hudTargetBox.style.display = 'flex';
+              hudTargetBox.style.left = `${(data.target.x / 320) * 100}%`;
+              hudTargetBox.style.top = `${(data.target.y / 240) * 100}%`;
+              hudTargetBox.className = data.target.object_type === 'moving_celestial' ? 'hud-target-indicator moving' : 'hud-target-indicator';
+              targetLockLabel.textContent = `LOCK: ${data.target.object_type.toUpperCase()}`;
+            }
+          } else {
+            lastTarget = null;
+            hudTargetBox.style.display = 'none';
+            hudOffsetCoords.textContent = 'ΔX: 0px / ΔY: 0px';
+            telemetryTargetPos.textContent = '---, ---';
+            telemetryVelocity.innerHTML = `0.0<span class="stat-unit">px/s</span>`;
+          }
+        } catch (e) {
+          // If running without backend, simulate mock telemetry
+          simulateMockTelemetry();
+        }
+      }
+
+      // Fallback telemetry simulator
+      let simTick = 0;
+      function simulateMockTelemetry() {
+        simTick++;
+        const tracking = (simTick % 5 !== 0);
+        const pan = (90 + Math.sin(simTick / 4) * 8).toFixed(2);
+        const tilt = (90 + Math.cos(simTick / 5) * 6).toFixed(2);
+
+        hudPanAngle.textContent = `${pan}°`;
+        hudTiltAngle.textContent = `${tilt}°`;
+        telemetryPan.innerHTML = `${pan}<span class="stat-unit">°</span>`;
+        telemetryTilt.innerHTML = `${tilt}<span class="stat-unit">°</span>`;
+        telemetryFps.innerHTML = `10.0<span class="stat-unit">FPS</span>`;
+        telemetryLatency.innerHTML = `8<span class="stat-unit">ms</span>`;
+
+        if (tracking) {
+          targetBadge.className = 'target-badge locked';
+          targetBadgeText.textContent = 'LOCKED';
+          const tx = Math.round(160 + Math.sin(simTick / 3) * 60);
+          const ty = Math.round(120 + Math.cos(simTick / 4) * 40);
+          lastTarget = { x: tx, y: ty, object_type: simTick % 6 < 3 ? 'bright_star' : 'moving_celestial' };
+          trajectoryHistory.push({ x: tx, y: ty });
+          if (trajectoryHistory.length > 25) trajectoryHistory.shift();
+
+          hudTargetBox.style.display = 'flex';
+          hudTargetBox.style.left = `${(tx / 320) * 100}%`;
+          hudTargetBox.style.top = `${(ty / 240) * 100}%`;
+          hudTargetBox.className = lastTarget.object_type === 'moving_celestial' ? 'hud-target-indicator moving' : 'hud-target-indicator';
+          targetLockLabel.textContent = `LOCK: ${lastTarget.object_type.toUpperCase()}`;
+          telemetryTargetPos.textContent = `${tx}, ${ty}`;
+          telemetryVelocity.innerHTML = `12.4<span class="stat-unit">px/s</span>`;
+        } else {
+          targetBadge.className = 'target-badge searching';
+          targetBadgeText.textContent = 'SEARCHING';
+          hudTargetBox.style.display = 'none';
+          lastTarget = null;
+        }
+      }
+
+      // --- Detection Event Log Polling ---
+      async function pollDetections() {
+        try {
+          const res = await fetch('/api/detections');
+          const logs = await res.json();
+          eventCountBadge.textContent = `(${logs.length})`;
+
+          if (!logs || logs.length === 0) {
+            detectionLogBody.innerHTML = `
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">
+                  Observatory awaiting detection signatures...
+                </td>
+              </tr>`;
+            return;
+          }
+
+          detectionLogBody.innerHTML = logs.slice(0, 15).map(item => {
+            const isStar = item.object_type === 'bright_star';
+            const badgeClass = isStar ? 'star' : 'moving';
+            const badgeIcon = isStar ? '★' : '⟐';
+            const pct = Math.round((item.confidence_score || 0.8) * 100);
+            const timeStr = item.timestamp ? (item.timestamp.split('T')[1] || item.timestamp).substring(0, 8) : '--:--:--';
+
+            return `
+              <tr>
+                <td>${timeStr}</td>
+                <td>
+                  <span class="tag-badge ${badgeClass}">${badgeIcon} ${item.object_type}</span>
+                </td>
+                <td>${parseFloat(item.current_pan_angle || 90).toFixed(1)}°</td>
+                <td>${parseFloat(item.current_tilt_angle || 90).toFixed(1)}°</td>
+                <td>
+                  <div class="conf-bar-wrapper">
+                    <div class="conf-bar-track">
+                      <div class="conf-bar-fill" style="width: ${pct}%"></div>
+                    </div>
+                    <span>${pct}%</span>
+                  </div>
+                </td>
+              </tr>`;
+          }).join('');
+        } catch (e) {
+          // If no detections API, keep clean
+        }
+      }
+
+      // --- Sliders Real-Time Values & Vision Settings Sync ---
+      sliderThreshold.addEventListener('input', () => {
+        thresholdValBadge.textContent = sliderThreshold.value;
+        sendVisionSettings();
+      });
+
+      sliderContour.addEventListener('input', () => {
+        contourValBadge.textContent = `${sliderContour.value} px²`;
+        sendVisionSettings();
+      });
+
+      sliderGain.addEventListener('input', () => {
+        gainValBadge.textContent = `${sliderGain.value}%`;
+        sendVisionSettings();
+      });
+
+      [toggleMotion, toggleBoxes, toggleTrajectories, toggleCoords].forEach(toggle => {
+        toggle.addEventListener('change', sendVisionSettings);
+      });
+
+      async function sendVisionSettings() {
+        const payload = {
+          motion_filter: toggleMotion.checked,
+          bounding_boxes: toggleBoxes.checked,
+          trajectories: toggleTrajectories.checked,
+          coords_display: toggleCoords.checked,
+          threshold: parseInt(sliderThreshold.value),
+          min_contour_area: parseInt(sliderContour.value),
+          gain: parseInt(sliderGain.value)
+        };
+        try {
+          await fetch('/api/vision/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } catch (e) { /* ignore */ }
+      }
+
+      // --- Jog Step Selector ---
+      document.querySelectorAll('.step-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.step-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          jogStep = parseFloat(btn.getAttribute('data-step'));
+        });
+      });
+
+      // --- 4-Axis Servo Jog Commands ---
+      async function sendJog(direction) {
+        try {
+          await fetch('/api/servo/jog', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ direction: direction, step: jogStep })
+          });
+          pollTelemetry();
+        } catch (e) {
+          console.log(`Jog command: ${direction} by ${jogStep}°`);
+        }
+      }
+
+      document.getElementById('jogUpBtn').addEventListener('click', () => sendJog('up'));
+      document.getElementById('jogDownBtn').addEventListener('click', () => sendJog('down'));
+      document.getElementById('jogLeftBtn').addEventListener('click', () => sendJog('left'));
+      document.getElementById('jogRightBtn').addEventListener('click', () => sendJog('right'));
+
+      // Reset Center
+      document.getElementById('btnResetCenter').addEventListener('click', async () => {
+        try {
+          await fetch('/api/servo/center', { method: 'POST' });
+          pollTelemetry();
+        } catch (e) {
+          console.log('Reset center invoked');
+        }
+      });
+
+      // Forward Event button
+      document.getElementById('btnForwardLog').addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/forward', { method: 'POST' });
+          const json = await res.json();
+          alert(json.status === 'forwarded' ? 'Detection forwarded successfully!' : 'Forward response: ' + JSON.stringify(json));
+        } catch (e) {
+          alert('Forward request failed or no remote receiver configured.');
+        }
+      });
+
+      // Interval Loops
+      setInterval(pollTelemetry, 1200);
+      setInterval(pollDetections, 2500);
+      pollTelemetry();
+      pollDetections();
+
+    })();
+  </script>
+</body>
+</html>
