@@ -26,7 +26,10 @@ from config import (
 )
 from vision import VisionPipeline, Detection
 from servo_controller import ServoController
-from web_server import start_server, update_state, log_detection, update_frame, register_servo_controller
+from web_server import (
+    start_server, update_state, log_detection, update_frame,
+    register_servo_controller, is_autotrack_enabled,
+)
 
 # ── Logging ───────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -128,7 +131,7 @@ def main() -> None:
             pan_angle  = servo.pan_angle  if servo else 90.0
             tilt_angle = servo.tilt_angle if servo else 90.0
 
-            if tracking and servo:
+            if tracking and servo and is_autotrack_enabled():
                 servo.update(target.x, target.y)
                 pan_angle  = servo.pan_angle
                 tilt_angle = servo.tilt_angle
