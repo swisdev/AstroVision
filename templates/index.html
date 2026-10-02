@@ -4,7 +4,742 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AstroVision // Autonomous Celestial Tracking</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3.0">
+<style>
+/* ==========================================================================
+   AstroVision — Minimalist Dark Design System (Vercel / Linear / Apple Inspired)
+   Palette: Matte Slate (#0B0F17, #161B26, #262C3A) + Electric Indigo (#6366F1) / Mint (#10B981)
+   Typography: Inter / system-ui, JetBrains Mono for telemetry
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* --- Custom Properties ---------------------------------------------------- */
+:root {
+  --bg-app: #0B0F17;
+  --bg-card: #161B26;
+  --bg-card-subtle: #1C2331;
+  --bg-overlay: rgba(11, 15, 23, 0.72);
+  --border-subtle: #262C3A;
+  --border-hover: #374151;
+  --border-focus: #4B5563;
+
+  /* Refined Accents (No heavy neon glows) */
+  --accent-indigo: #6366F1;
+  --accent-indigo-subtle: rgba(99, 102, 241, 0.12);
+  --accent-mint: #10B981;
+  --accent-mint-subtle: rgba(16, 185, 129, 0.12);
+  --accent-amber: #F59E0B;
+  --accent-amber-subtle: rgba(245, 158, 11, 0.12);
+  --accent-rose: #F43F5E;
+  --accent-rose-subtle: rgba(244, 63, 94, 0.12);
+
+  /* Typography Colors */
+  --text-primary: #F3F4F6;
+  --text-secondary: #9CA3AF;
+  --text-tertiary: #6B7280;
+  --text-disabled: #4B5563;
+
+  /* Typography Fonts */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Layout & Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 9999px;
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+}
+
+/* --- Base & Reset -------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* --- Main Layout Container ----------------------------------------------- */
+.app-shell {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 1.5rem 1.75rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* --- 4. Top Control Bar -------------------------------------------------- */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent-indigo), #4338CA);
+  display: grid;
+  place-items: center;
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.brand-desc {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.top-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+/* System Pulse Badge */
+.system-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.65rem;
+  background: var(--accent-mint-subtle);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--accent-mint);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+/* Auto-Tracking Toggle Switch */
+.autotrack-control {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.autotrack-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  user-select: none;
+  cursor: pointer;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #2D3748;
+  border-radius: var(--radius-pill);
+  transition: var(--transition-normal);
+}
+
+.toggle-slider::before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #E2E8F0;
+  border-radius: 50%;
+  transition: var(--transition-normal);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--accent-indigo);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+  background-color: #FFFFFF;
+}
+
+/* --- Dashboard Main 2-Column Grid ---------------------------------------- */
+.dashboard-body {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- 1. Main Live Stream Window (Center/Left) ---------------------------- */
+.main-feed-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.feed-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Status Indicator Badge (Top Right of Feed) */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-badge.searching {
+  background: var(--accent-amber-subtle);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: var(--accent-amber);
+}
+
+.live-badge.locked {
+  background: var(--accent-mint-subtle);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: var(--accent-mint);
+}
+
+.live-stream-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: #06090F;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-element {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-fallback-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Minimalist Stream Overlays */
+.stream-overlay-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.stream-overlay-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+/* Target Coordinates & Label Overlay */
+.target-telemetry-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.target-badge-label {
+  color: var(--accent-indigo);
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.target-coords-text {
+  color: var(--text-secondary);
+}
+
+/* Minimalist Target Reticle Marker */
+.target-marker-box {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--accent-indigo);
+  border-radius: 4px;
+  pointer-events: none;
+  transition: left 0.15s ease-out, top 0.15s ease-out, border-color var(--transition-fast);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.target-marker-box.celestial {
+  border-color: var(--accent-mint);
+}
+
+.target-marker-box.moving {
+  border-color: var(--accent-rose);
+}
+
+.target-marker-tag {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-primary);
+  background: rgba(11, 15, 23, 0.85);
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+/* Subtle Stream Footer Telemetry */
+.stream-overlay-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  background: var(--bg-overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+/* --- Right Column Layout ------------------------------------------------- */
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Generic Clean Card Style */
+.clean-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* --- 2. Real-Time Detection Log / "What It Sees" -------------------------- */
+.detection-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.meta-box {
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.meta-label {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.meta-value {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.meta-value.accent {
+  color: var(--accent-indigo);
+}
+
+.meta-value.mint {
+  color: var(--accent-mint);
+}
+
+/* Detection Event List */
+.detection-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.detection-list-wrap::-webkit-scrollbar {
+  width: 4px;
+}
+.detection-list-wrap::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+.detection-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  transition: border-color var(--transition-fast);
+}
+
+.detection-item:hover {
+  border-color: var(--border-hover);
+}
+
+.item-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.item-target-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.item-time {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+}
+
+.item-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.confidence-pill {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: var(--accent-mint-subtle);
+  color: var(--accent-mint);
+}
+
+.angles-stamp {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+/* Single Working Snapshot / Capture Button */
+.btn-capture {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.btn-capture:hover {
+  background: #232B3C;
+  border-color: var(--border-hover);
+  color: #FFFFFF;
+}
+
+.btn-capture:active {
+  transform: scale(0.99);
+}
+
+.btn-capture.capturing {
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
+}
+
+/* --- 3. Working Servo / Pan-Tilt D-Pad Controls (Bottom Right) ----------- */
+.controls-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* Step Size Toggle Pills */
+.step-selector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.step-label {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.step-pill-group {
+  display: flex;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+  gap: 2px;
+}
+
+.step-pill {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.step-pill:hover {
+  color: var(--text-primary);
+}
+
+.step-pill.active {
+  background: var(--accent-indigo);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+/* Tactile 5-Button D-Pad Control */
+.dpad-mount {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.5rem 0;
+}
+
+.dpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(3, 46px);
+  gap: 6px;
+  background: var(--bg-card-subtle);
+  padding: 8px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+}
+
+.dpad-button {
+  background: #1E2536;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.dpad-button:hover {
+  background: #273147;
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.dpad-button:active, .dpad-button.active {
+  background: var(--accent-indigo);
+  border-color: var(--accent-indigo);
+  color: #FFFFFF;
+  transform: scale(0.94);
+}
+
+.dpad-button.center-home {
+  background: #252D3F;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dpad-button.center-home:hover {
+  color: #FFFFFF;
+  background: #2E384D;
+}
+
+.dpad-button.center-home:active, .dpad-button.center-home.active {
+  background: var(--accent-mint);
+  border-color: var(--accent-mint);
+  color: #FFFFFF;
+}
+
+/* Angles Readout Row under D-Pad */
+.angles-readout-row {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.angles-readout-row strong {
+  color: var(--text-primary);
+}
+
+/* Toast Notification for Feedback */
+.toast-notice {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.78rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: all var(--transition-normal);
+  z-index: 1000;
+}
+
+.toast-notice.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+</style>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%236366F1'/></svg>">
 </head>
 <body>
@@ -615,3 +1350,4 @@
   </script>
 </body>
 </html>
+
