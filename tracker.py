@@ -26,7 +26,7 @@ from config import (
 )
 from vision import VisionPipeline, Detection
 from servo_controller import ServoController
-from web_server import start_server, update_state, log_detection
+from web_server import start_server, update_state, log_detection, update_frame, register_servo_controller
 
 # ── Logging ───────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -79,6 +79,7 @@ def main() -> None:
     servo: ServoController | None = None
     if not args.no_servo:
         servo = ServoController()
+        register_servo_controller(servo)
     else:
         log.info("Servo output disabled (--no-servo).")
 
@@ -166,6 +167,11 @@ def main() -> None:
                 fps=fps,
                 uptime=int(elapsed),
             )
+
+            # ── Stream frame to web server ────────────────────────────
+            ret, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
+            if ret:
+                update_frame(jpeg.tobytes())
 
             # ── Throttle to FPS_LIMIT ─────────────────────────────────
             dt = time.monotonic() - t0
