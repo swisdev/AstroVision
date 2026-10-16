@@ -67,6 +67,35 @@ def _pick_target(detections: list) -> Detection | None:
     return None
 
 
+def _find_streaming_camera(preferred_idx: int):
+    """
+    Finds a video device that not only opens, but actually delivers real image frames.
+    Avoids opening Linux /dev/video metadata/codec devices that produce no frames.
+    """
+    candidates = [preferred_idx] + [i for i in range(8) if i != preferred_idx]
+
+    for idx in candidates:
+        for backend in [cv2.CAP_V4L2, cv2.CAP_ANY]:
+            try:
+                cap = cv2.VideoCapture(idx, backend)
+                if not cap.isOpened():
+                    continue
+
+                # Give sensor a brief moment to initialize and attempt read
+                for _ in range(4):
+                    ok, test_frame = cap.read()
+                    if ok and test_frame is not None and test_frame.size > 0:
+                        log.info("✔ Camera index %d verified streaming (%dx%d)", idx, test_frame.shape[1], test_frame.shape[0])
+                        return cap, idx
+                    time.sleep(0.08)
+
+                cap.release()
+            except Exception:
+                continue
+
+    return None, -1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AstroVision (AV) — Celestial Tracking System")
     parser.add_argument(
@@ -92,37 +121,25 @@ def main() -> None:
 
     web_thread = start_server()
 
-    # ── Camera Probe & Init ───────────────────────────────────────────
-    target_cam = args.camera
-    cap = cv2.VideoCapture(target_cam)
-    if not cap.isOpened():
-        log.warning("Camera index %d failed to open. Scanning indices 0–4 …", target_cam)
-        found_cam = False
-        for alt_idx in [0, 1, 2, 3, 4]:
-            if alt_idx == target_cam:
-                continue
-            test_cap = cv2.VideoCapture(alt_idx)
-            if test_cap.isOpened():
-                ret, _ = test_cap.read()
-                if ret:
-                    cap = test_cap
-                    target_cam = alt_idx
-                    found_cam = True
-                    log.info("✔ Successfully connected to camera at index %d!", target_cam)
-                    break
-                test_cap.release()
+    # ── Camera Probe & Init (Verified Streaming) ──────────────────────
+    cap, active_cam = _find_streaming_camera(args.camera)
+    if cap is None:
+        log.error("No camera found delivering video frames.")
+        log.info("💡 TIP 1 (Ribbon / CSI Camera): Run with Raspberry Pi camera bridge:")
+        log.info("   libcamerify python3 tracker.py")
+        log.info("💡 TIP 2 (USB Camera): Run 'ls -l /dev/video*' or try another USB port.")
+        sys.exit(1)
 
-        if not found_cam:
-            log.error("No working camera found at index %d or alternatives (0–4).", target_cam)
-            log.info("💡 TIP 1 (CSI Ribbon Camera on Pi 4): Run with the Raspberry Pi camera bridge:")
-            log.info("   libcamerify python3 tracker.py")
-            log.info("💡 TIP 2 (USB Camera): Check 'ls -l /dev/video*' to find the device index.")
-            sys.exit(1)
-
+    # Attempt to request downsampled resolution, fallback gracefully if sensor rejects it
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE,   1)  # minimise latency
-    log.info("Camera %d opened successfully: %dx%d", target_cam, FRAME_WIDTH, FRAME_HEIGHT)
+    ok, check_frame = cap.read()
+    if not ok or check_frame is None:
+        log.warning("Hardware rejected %dx%d resolution. Using native camera resolution with software scaling.", FRAME_WIDTH, FRAME_HEIGHT)
+        cap.release()
+        cap = cv2.VideoCapture(active_cam)
+
+    log.info("Camera %d active and streaming for AstroVision.", active_cam)
 
     tick_interval = 1.0 / FPS_LIMIT
     start_time    = time.monotonic()
