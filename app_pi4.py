@@ -37,13 +37,22 @@ logging.basicConfig(
 )
 log = logging.getLogger("AstroVision-Pi4")
 
-# ── Graceful Exit Handling ─────────────────────────────────────────────────
+# ── Global State & Lifecycle ───────────────────────────────────────────────
 _running = True
+_autoscan_active = False
+_autoscan_thread: Optional[threading.Thread] = None
+
+def stop_autoscan():
+    global _autoscan_active, _autoscan_thread
+    _autoscan_active = False
+    if _autoscan_thread and _autoscan_thread.is_alive():
+        _autoscan_thread.join(timeout=1.0)
+    _autoscan_thread = None
 
 def _signal_handler(sig, frame):
-    global _running, _autoscan_active
+    global _running
     log.info("Shutdown signal received (%d). Stopping AstroVision…", sig)
-    _autoscan_active = False
+    stop_autoscan()
     _running = False
 
 signal.signal(signal.SIGINT, _signal_handler)
@@ -79,10 +88,6 @@ _state: Dict[str, Any] = {
 }
 _detection_log = deque(maxlen=100)
 _latest_jpeg: Optional[bytes] = None
-
-# Auto-Scan State
-_autoscan_active = False
-_autoscan_thread: Optional[threading.Thread] = None
 
 
 # ── Hardware Servo Controller (Zero-Jitter Pulse & Kill) ────────────────────
@@ -475,10 +480,8 @@ def api_detections():
 
 @app.route("/api/move", methods=["GET", "POST"])
 def api_move():
-    global _autoscan_active
     # Moving manually pauses auto-scan
-    if _autoscan_active:
-        _autoscan_active = False
+    stop_autoscan()
 
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
@@ -529,10 +532,7 @@ def api_toggle_autotrack():
 def api_autoscan():
     global _autoscan_active, _autoscan_thread
     if _autoscan_active:
-        _autoscan_active = False
-        if _autoscan_thread and _autoscan_thread.is_alive():
-            _autoscan_thread.join(timeout=1.5)
-        _autoscan_thread = None
+        stop_autoscan()
         current = False
     else:
         _autoscan_active = True
@@ -677,8 +677,7 @@ def main():
                 time.sleep(sleep_t)
 
     finally:
-        global _autoscan_active
-        _autoscan_active = False
+        stop_autoscan()
         camera.close()
         if global_servos:
             global_servos.close()
