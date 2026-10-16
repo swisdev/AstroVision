@@ -1,5 +1,5 @@
-opencv-python-headless==4.9.0.80
-flask==3.0.3
-requests==2.32.3
-pigpio==1.78
-numpy==1.26.4
+opencv-python-headless>=4.5.3
+flask>=2.2.0
+requests>=2.25.0
+pigpio>=1.78
+numpy>=1.21.0

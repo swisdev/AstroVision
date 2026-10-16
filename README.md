@@ -261,7 +261,34 @@ To run AstroVision as a headless background daemon whenever the Raspberry Pi pow
 
 ## 🔍 Troubleshooting & Frequently Asked Questions
 
-### 1. Camera Fails to Open (`Cannot open camera 0. Exiting.`)
+### 1. APT Error: `Package 'pigpio'` or `'libatlas-base-dev' has no installation candidate`
+
+- **Cause: You are running Raspberry Pi OS Bookworm (Debian 12) or Ubuntu.**
+  - Debian 12 removed `libatlas-base-dev` and replaced it with `libopenblas-dev`.
+  - Debian 12 also dropped `pigpio` from the standard APT package repository.
+- **Solution (Automatic):**
+  Pull the latest repository changes and re-run the updated installer, which automatically detects your OS and builds `pigpio` from source in ~20 seconds:
+  ```bash
+  git pull
+  sudo ./install.sh
+  ```
+- **Solution (Manual):**
+  If installing manually, install `libopenblas-dev` and compile `pigpio` from its official repository:
+  ```bash
+  sudo apt-get update
+  sudo apt-get install -y build-essential git python3-pip python3-venv libopenblas-dev
+  
+  # Build and install pigpio
+  git clone https://github.com/joan2937/pigpio.git /tmp/pigpio
+  cd /tmp/pigpio
+  make && sudo make install
+  sudo ldconfig
+  sudo systemctl restart pigpiod
+  ```
+
+---
+
+### 2. Camera Fails to Open (`Cannot open camera 0. Exiting.`)
 
 - **Cause A: Camera index mismatch.**
   Check available video devices:
