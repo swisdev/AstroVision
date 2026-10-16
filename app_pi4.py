@@ -2,14 +2,15 @@
 """
 AstroVision (AV) — Native Raspberry Pi 4 Celestial Tracker & Observatory Hub.
 
-Engineered specifically for Raspberry Pi 4 (Raspberry Pi OS Bullseye / Bookworm):
-- Camera: Native Picamera2 (for CSI ribbon cameras) with automatic OpenCV fallback (for USB webcams).
-- Servos: Standard gpiozero AngularServo (preinstalled on Raspberry Pi OS; no pigpiod daemon required).
-- Vision: Dual-mode OpenCV detector (bright stars + moving satellites/meteors) with P-control servo loop.
+Features:
+- Camera: Native Picamera2 (CSI ribbon cameras) + OpenCV fallback (USB webcams).
+- Servos: Hardware-timed PWM via pigpio when available + gpiozero fallback + active PWM signal-kill (zero jitter).
+- Auto Sky Patrol: Automated celestial sweep / patrol mode to autonomously scan the night sky.
+- Vision: Dual-mode OpenCV detector (bright stars + moving satellites/meteors) with P-control.
 - Web UI: Clean dark-mode dashboard (Vercel/Linear style) with live stream, manual D-pad, and REST API.
 
 Usage:
-    python3 app_pi4.py
+    sudo python3 app_pi4.py
     python3 app_pi4.py --no-servo
     python3 app_pi4.py --port 8080
 """
@@ -40,8 +41,9 @@ log = logging.getLogger("AstroVision-Pi4")
 _running = True
 
 def _signal_handler(sig, frame):
-    global _running
+    global _running, _autoscan_active
     log.info("Shutdown signal received (%d). Stopping AstroVision…", sig)
+    _autoscan_active = False
     _running = False
 
 signal.signal(signal.SIGINT, _signal_handler)
@@ -56,17 +58,18 @@ FRAME_HEIGHT = 240
 FPS_TARGET = 15
 
 # Proportional Controller Gains & Anti-Jitter Tuning
-KP_PAN = 0.025       # Gentle gain (prevents overshooting and oscillation)
+KP_PAN = 0.025       # Gentle gain (prevents overshooting)
 KP_TILT = 0.025      # Gentle gain
-DEADZONE_PX = 14     # Generous deadband: if object is near center, don't twitch
+DEADZONE_PX = 16     # Generous deadband: if object is near center, don't twitch
 MAX_STEP_DEG = 2.0   # Max degrees per step for smooth glide
-MIN_STEP_DEG = 0.4   # Ignore microscopic steps below gear backlash
+MIN_STEP_DEG = 0.5   # Ignore microscopic steps below gear backlash
 
 # ── Global State ───────────────────────────────────────────────────────────
 _state_lock = threading.Lock()
 _state: Dict[str, Any] = {
     "tracking": False,
     "autotrack": True,
+    "autoscan": False,
     "pan_angle": 90.0,
     "tilt_angle": 90.0,
     "target": None,
@@ -77,9 +80,21 @@ _state: Dict[str, Any] = {
 _detection_log = deque(maxlen=100)
 _latest_jpeg: Optional[bytes] = None
 
-# ── Hardware Servo Controller (gpiozero with Anti-Jitter & Auto-Detach) ───
+# Auto-Scan State
+_autoscan_active = False
+_autoscan_thread: Optional[threading.Thread] = None
+
+
+# ── Hardware Servo Controller (Zero-Jitter Pulse & Kill) ────────────────────
 class Pi4ServoDriver:
-    """Controls Pan/Tilt servos using gpiozero with anti-jitter auto-detach."""
+    """
+    Controls Pan/Tilt servos with ZERO jitter.
+    
+    1. Uses pigpio hardware DMA PWM when available (zero-jitter pulse timing).
+    2. Falls back to gpiozero native pin factory.
+    3. Actively kills the PWM signal (value=None) when idle so motor coils
+       turn off completely, eliminating 100% of hum, buzz, and vibration!
+    """
 
     def __init__(self, pan_pin: int = SERVO_PAN_PIN, tilt_pin: int = SERVO_TILT_PIN):
         self.pan_angle = 90.0
@@ -87,8 +102,8 @@ class Pi4ServoDriver:
         self.pan_servo = None
         self.tilt_servo = None
         self.is_hardware = False
-        self.is_attached = True
-        self.last_move_time = time.monotonic()
+        self._signal_active = False
+        self._last_move_time = time.monotonic()
 
         # Coordinate smoothing filters (exponential moving average)
         self.smooth_x = float(FRAME_WIDTH // 2)
@@ -96,22 +111,40 @@ class Pi4ServoDriver:
 
         try:
             from gpiozero import AngularServo
-            # Standard SG90/MG90S pulse range (0.5ms to 2.5ms)
-            self.pan_servo = AngularServo(
-                pan_pin, min_angle=0, max_angle=180,
-                min_pulse_width=0.0005, max_pulse_width=0.0025
-            )
-            self.tilt_servo = AngularServo(
-                tilt_pin, min_angle=0, max_angle=180,
-                min_pulse_width=0.0005, max_pulse_width=0.0025
-            )
-            self.is_hardware = True
-            log.info("✔ gpiozero hardware servos initialized on GPIO %d (Pan) & %d (Tilt)", pan_pin, tilt_pin)
-            self.set_angles(self.pan_angle, self.tilt_angle)
-        except Exception as exc:
-            log.warning("gpiozero hardware servos unavailable (%s). Running in simulation mode.", exc)
 
-    def set_angles(self, pan: float, tilt: float):
+            # Attempt 1: Try pigpio for hardware-timed PWM (rock solid)
+            pin_factory = None
+            try:
+                from gpiozero.pins.pigpio import PiGPIOFactory
+                pin_factory = PiGPIOFactory()
+                log.info("✔ Connected to pigpio hardware PWM backend (zero-jitter mode).")
+            except Exception:
+                log.info("ℹ pigpio daemon not running, using standard gpiozero backend.")
+
+            kwargs = {
+                "min_angle": 0,
+                "max_angle": 180,
+                "min_pulse_width": 0.0005,
+                "max_pulse_width": 0.0025,
+            }
+            if pin_factory:
+                kwargs["pin_factory"] = pin_factory
+
+            self.pan_servo = AngularServo(pan_pin, **kwargs)
+            self.tilt_servo = AngularServo(tilt_pin, **kwargs)
+            self.is_hardware = True
+            log.info("✔ Servos initialized on GPIO %d (Pan) & %d (Tilt)", pan_pin, tilt_pin)
+
+            # Move to default center, then immediately silence the PWM signal
+            self._write_angles(self.pan_angle, self.tilt_angle)
+            time.sleep(0.4)
+            self._silence_pwm()
+
+        except Exception as exc:
+            log.warning("Hardware servos unavailable (%s). Running in simulation mode.", exc)
+
+    def _write_angles(self, pan: float, tilt: float):
+        """Send PWM pulse to turn the motors."""
         self.pan_angle = max(0.0, min(180.0, pan))
         self.tilt_angle = max(0.0, min(180.0, tilt))
 
@@ -121,60 +154,68 @@ class Pi4ServoDriver:
                     self.pan_servo.angle = self.pan_angle
                 if self.tilt_servo:
                     self.tilt_servo.angle = self.tilt_angle
-                self.is_attached = True
-                self.last_move_time = time.monotonic()
+                self._signal_active = True
+                self._last_move_time = time.monotonic()
             except Exception as e:
                 log.debug("Servo write error: %s", e)
 
-    def check_auto_detach(self):
+    def _silence_pwm(self):
         """
-        Shuts off PWM pulses 0.25s after physical movement finishes.
-        This stops 100% of servo motor buzzing, humming, and camera vibration!
+        Kill PWM output on the GPIO pins completely.
+        When value=None, gpiozero cuts off the signal pulse.
+        Motor coils power down, mechanical gears hold position with friction,
+        and all jitter, buzzing, and camera shake drops to ZERO.
         """
-        if self.is_hardware and self.is_attached:
-            if time.monotonic() - self.last_move_time > 0.25:
-                try:
-                    if self.pan_servo:
-                        self.pan_servo.detach()
-                    if self.tilt_servo:
-                        self.tilt_servo.detach()
-                    self.is_attached = False
-                except Exception:
-                    pass
+        if self.is_hardware and self._signal_active:
+            try:
+                if self.pan_servo:
+                    self.pan_servo.value = None
+                if self.tilt_servo:
+                    self.tilt_servo.value = None
+                self._signal_active = False
+            except Exception:
+                pass
+
+    def set_angles(self, pan: float, tilt: float):
+        """Command a movement to specified angles."""
+        self._write_angles(pan, tilt)
+
+    def tick_silence_check(self):
+        """Automatically called on every frame. Kills PWM 0.25s after moving."""
+        if self._signal_active and (time.monotonic() - self._last_move_time > 0.25):
+            self._silence_pwm()
 
     def update_p_controller(self, raw_x: int, raw_y: int):
-        # 1. Smooth out camera sensor noise using Exponential Moving Average
-        self.smooth_x = 0.60 * self.smooth_x + 0.40 * float(raw_x)
-        self.smooth_y = 0.60 * self.smooth_y + 0.40 * float(raw_y)
+        # 1. Smooth out noisy camera detections with Exponential Moving Average
+        self.smooth_x = 0.65 * self.smooth_x + 0.35 * float(raw_x)
+        self.smooth_y = 0.65 * self.smooth_y + 0.35 * float(raw_y)
 
         cx, cy = FRAME_WIDTH // 2, FRAME_HEIGHT // 2
         err_x = self.smooth_x - cx
         err_y = self.smooth_y - cy
 
-        # 2. Generous deadband: if close to center, stop pulsing servos!
+        # 2. Generous deadband: if target is near center, don't twitch
         if abs(err_x) < DEADZONE_PX:
             err_x = 0
         if abs(err_y) < DEADZONE_PX:
             err_y = 0
 
         if err_x == 0 and err_y == 0:
-            self.check_auto_detach()
             return
 
         # 3. Smooth clamped proportional step
         delta_pan = max(-MAX_STEP_DEG, min(MAX_STEP_DEG, KP_PAN * err_x))
         delta_tilt = max(-MAX_STEP_DEG, min(MAX_STEP_DEG, KP_TILT * err_y))
 
-        # 4. Only move if delta is meaningful (prevents sub-millimeter gear chatter)
+        # 4. Only move if delta exceeds minimal gear backlash
         if abs(delta_pan) >= MIN_STEP_DEG or abs(delta_tilt) >= MIN_STEP_DEG:
-            self.set_angles(self.pan_angle + delta_pan, self.tilt_angle + delta_tilt)
-        else:
-            self.check_auto_detach()
+            self._write_angles(self.pan_angle + delta_pan, self.tilt_angle + delta_tilt)
 
     def center(self):
-        self.set_angles(90.0, 90.0)
+        self._write_angles(90.0, 90.0)
 
     def close(self):
+        self._silence_pwm()
         if self.is_hardware:
             try:
                 if self.pan_servo:
@@ -183,6 +224,63 @@ class Pi4ServoDriver:
                     self.tilt_servo.close()
             except Exception:
                 pass
+
+
+# ── Auto Sky Patrol / Scan Worker ───────────────────────────────────────────
+def _autoscan_worker():
+    """
+    Sweeps the celestial dome in an automated serpentine patrol pattern.
+    Pans left to right (25° to 155°), steps up tilt by 8°, sweeps back,
+    and resets smoothly when reaching zenith.
+    """
+    global _autoscan_active
+
+    pan_min, pan_max = 25.0, 155.0
+    tilt_min, tilt_max = 25.0, 85.0
+    step_pan = 1.5       # degrees per tick
+    step_tilt = 8.0      # degrees step between horizontal sweeps
+    sweep_interval = 0.12 # seconds between steps
+
+    current_pan = pan_min
+    current_tilt = tilt_min
+    pan_dir = 1  # 1 = right, -1 = left
+
+    log.info("🔭 Auto Sky Patrol started: sweeping %.0f° to %.0f° pan, %.0f° to %.0f° tilt",
+             pan_min, pan_max, tilt_min, tilt_max)
+
+    while _autoscan_active and _running:
+        # Move servos to patrol coordinates
+        if global_servos:
+            global_servos.set_angles(current_pan, current_tilt)
+
+        with _state_lock:
+            _state["pan_angle"] = round(current_pan, 2)
+            _state["tilt_angle"] = round(current_tilt, 2)
+
+        time.sleep(sweep_interval)
+
+        # Advance pan along the sweep
+        current_pan += step_pan * pan_dir
+
+        # Hit edge? Step elevation (tilt) and reverse pan direction
+        if current_pan >= pan_max:
+            current_pan = pan_max
+            pan_dir = -1
+            current_tilt += step_tilt
+        elif current_pan <= pan_min:
+            current_pan = pan_min
+            pan_dir = 1
+            current_tilt += step_tilt
+
+        # Reached top elevation? Reset to horizon
+        if current_tilt > tilt_max:
+            current_tilt = tilt_min
+            log.info("🔭 Auto Sky Patrol completed a full sky pass. Resetting from horizon.")
+
+    if global_servos:
+        global_servos._silence_pwm()
+    log.info("🔭 Auto Sky Patrol stopped.")
+
 
 # ── Dual-Mode Camera Driver (Picamera2 Ribbon + OpenCV USB) ────────────────
 class Pi4CameraDriver:
@@ -252,21 +350,18 @@ class Pi4CameraDriver:
             return False, np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
 
         else:
-            # Synthetic celestial frame with drifting satellite
             return True, self._generate_synthetic_sky()
 
     def _generate_synthetic_sky(self) -> np.ndarray:
         frame = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
         frame[:] = (20, 14, 10)  # Matte dark sky
 
-        # Fixed starfield
         np.random.seed(99)
         sx = np.random.randint(4, FRAME_WIDTH - 4, 30)
         sy = np.random.randint(4, FRAME_HEIGHT - 4, 30)
         for x, y in zip(sx, sy):
             frame[y, x] = (220, 220, 220)
 
-        # Moving satellite
         t = (time.monotonic() * 14) % FRAME_WIDTH
         sat_x = int(t)
         sat_y = int(50 + np.sin(t / 20) * 20)
@@ -285,6 +380,7 @@ class Pi4CameraDriver:
                 self.cv_cap.release()
             except Exception:
                 pass
+
 
 # ── Computer Vision Detector ───────────────────────────────────────────────
 class CelestialVision:
@@ -344,6 +440,7 @@ class CelestialVision:
 
         return best_star
 
+
 # ── Flask Web Server ───────────────────────────────────────────────────────
 app = Flask(__name__)
 app.logger.setLevel(logging.WARNING)
@@ -367,7 +464,9 @@ def video_feed():
 @app.route("/api/status")
 def api_status():
     with _state_lock:
-        return jsonify(_state)
+        data = dict(_state)
+    data["autoscan"] = _autoscan_active
+    return jsonify(data)
 
 @app.route("/api/detections")
 def api_detections():
@@ -376,6 +475,11 @@ def api_detections():
 
 @app.route("/api/move", methods=["GET", "POST"])
 def api_move():
+    global _autoscan_active
+    # Moving manually pauses auto-scan
+    if _autoscan_active:
+        _autoscan_active = False
+
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
         direction = data.get("direction", request.args.get("direction", "")).lower()
@@ -420,6 +524,26 @@ def api_toggle_autotrack():
         current = _state["autotrack"]
     return jsonify({"status": "ok", "autotrack": current})
 
+@app.route("/api/autoscan", methods=["GET", "POST"])
+@app.route("/api/toggle_scan", methods=["GET", "POST"])
+def api_autoscan():
+    global _autoscan_active, _autoscan_thread
+    if _autoscan_active:
+        _autoscan_active = False
+        if _autoscan_thread and _autoscan_thread.is_alive():
+            _autoscan_thread.join(timeout=1.5)
+        _autoscan_thread = None
+        current = False
+    else:
+        _autoscan_active = True
+        _autoscan_thread = threading.Thread(target=_autoscan_worker, daemon=True)
+        _autoscan_thread.start()
+        current = True
+
+    with _state_lock:
+        _state["autoscan"] = current
+    return jsonify({"status": "ok", "autoscan": current})
+
 @app.route("/api/capture", methods=["GET", "POST"])
 def api_capture():
     with _state_lock:
@@ -433,6 +557,7 @@ def api_capture():
         "pan": pan, "tilt": tilt, "target": tgt,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
+
 
 # ── Main Controller Loop ───────────────────────────────────────────────────
 global_servos: Optional[Pi4ServoDriver] = None
@@ -496,12 +621,15 @@ def main():
             with _state_lock:
                 autotrack_on = _state["autotrack"]
 
-            if tracking and autotrack_on and global_servos:
+            # Only run tracking corrections if not in auto sky patrol mode
+            if tracking and autotrack_on and global_servos and not _autoscan_active:
                 global_servos.update_p_controller(target["x"], target["y"])
                 pan_val = global_servos.pan_angle
                 tilt_val = global_servos.tilt_angle
-            elif global_servos:
-                global_servos.check_auto_detach()
+
+            # Silence PWM pulse when servos finish moving (stops vibration!)
+            if global_servos:
+                global_servos.tick_silence_check()
 
             # Annotate Frame for Web Stream
             annotated = frame.copy()
@@ -549,6 +677,8 @@ def main():
                 time.sleep(sleep_t)
 
     finally:
+        global _autoscan_active
+        _autoscan_active = False
         camera.close()
         if global_servos:
             global_servos.close()

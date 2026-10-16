@@ -770,6 +770,15 @@ html, body {
             <span class="toggle-slider"></span>
           </label>
         </div>
+
+        <!-- Auto Sky Patrol Mode Toggle Switch -->
+        <div class="autotrack-control">
+          <label for="autoscanToggle" class="autotrack-label">Auto Sky Patrol</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoscanToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
       </div>
     </header>
 
@@ -978,6 +987,7 @@ html, body {
       const footTiltVal = document.getElementById('footTiltVal');
       const detectionList = document.getElementById('detectionList');
       const autotrackToggle = document.getElementById('autotrackToggle');
+      const autoscanToggle = document.getElementById('autoscanToggle');
       const btnCapture = document.getElementById('btnCapture');
       const btnCaptureText = document.getElementById('btnCaptureText');
       const toastNotice = document.getElementById('toastNotice');
@@ -1073,6 +1083,15 @@ html, body {
           // Auto-track state
           if (typeof data.autotrack === 'boolean') {
             autotrackToggle.checked = data.autotrack;
+          }
+
+          // Auto-scan state
+          if (typeof data.autoscan === 'boolean' && autoscanToggle) {
+            autoscanToggle.checked = data.autoscan;
+            if (data.autoscan) {
+              liveBadgeText.textContent = 'Patrol Active';
+              liveBadge.className = 'live-badge live';
+            }
           }
 
           // Pan / Tilt
@@ -1318,6 +1337,26 @@ html, body {
           console.warn('[AstroVision] /api/toggle_autotrack network feedback:', err);
         }
       });
+
+      // --- Auto Sky Patrol Toggle Switch Listener ---
+      if (autoscanToggle) {
+        autoscanToggle.addEventListener('change', async () => {
+          const isScanning = autoscanToggle.checked;
+          showToast(isScanning ? 'Auto Sky Patrol Started' : 'Auto Sky Patrol Paused');
+          try {
+            const res = await fetch(`/api/autoscan`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: isScanning })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            autoscanToggle.checked = !!data.autoscan;
+          } catch (err) {
+            console.warn('[AstroVision] /api/autoscan network feedback:', err);
+          }
+        });
+      }
 
       // --- Snapshot / Capture Button Listener ---
       btnCapture.addEventListener('click', async () => {

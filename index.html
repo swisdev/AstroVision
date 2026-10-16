@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="static/style.css?v=3.0">
 <style>
 /* ==========================================================================
-   AstroVision — Minimalist Dark Design System (Vercel / Linear / Apple Inspired)
+   AstroVision â€” Minimalist Dark Design System (Vercel / Linear / Apple Inspired)
    Palette: Matte Slate (#0B0F17, #161B26, #262C3A) + Electric Indigo (#6366F1) / Mint (#10B981)
    Typography: Inter / system-ui, JetBrains Mono for telemetry
    ========================================================================== */
@@ -770,6 +770,15 @@ html, body {
             <span class="toggle-slider"></span>
           </label>
         </div>
+
+        <!-- Auto Sky Patrol Mode Toggle Switch -->
+        <div class="autotrack-control">
+          <label for="autoscanToggle" class="autotrack-label">Auto Sky Patrol</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoscanToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
       </div>
     </header>
 
@@ -806,7 +815,7 @@ html, body {
               <!-- Target Coordinates & Detection Label Pill -->
               <div class="target-telemetry-pill">
                 <span id="overlayTargetLabel" class="target-badge-label">Scanning Sky</span>
-                <span id="overlayCoords" class="target-coords-text">X: —  Y: —</span>
+                <span id="overlayCoords" class="target-coords-text">X: â€”  Y: â€”</span>
               </div>
             </div>
 
@@ -817,8 +826,8 @@ html, body {
 
             <!-- Bottom Telemetry Readout -->
             <div class="stream-overlay-bottom">
-              <div>OPTICS: 320×240 @ <span id="feedFpsText">10.0</span> FPS</div>
-              <div>OFFSET: <span id="feedOffsetText">ΔX: 0px  ΔY: 0px</span></div>
+              <div>OPTICS: 320Ã—240 @ <span id="feedFpsText">10.0</span> FPS</div>
+              <div>OFFSET: <span id="feedOffsetText">Î”X: 0px  Î”Y: 0px</span></div>
               <div id="feedLatencyText">Latency: 12ms</div>
             </div>
           </div>
@@ -848,15 +857,15 @@ html, body {
             </div>
             <div class="meta-box">
               <span class="meta-label">Confidence</span>
-              <span class="meta-value mint" id="targetConfValue">—</span>
+              <span class="meta-value mint" id="targetConfValue">â€”</span>
             </div>
             <div class="meta-box">
               <span class="meta-label">Pan (Azimuth)</span>
-              <span class="meta-value" id="panAngleValue">90.00°</span>
+              <span class="meta-value" id="panAngleValue">90.00Â°</span>
             </div>
             <div class="meta-box">
               <span class="meta-label">Tilt (Elevation)</span>
-              <span class="meta-value" id="tiltAngleValue">90.00°</span>
+              <span class="meta-value" id="tiltAngleValue">90.00Â°</span>
             </div>
           </div>
 
@@ -889,9 +898,9 @@ html, body {
 
             <!-- Step Size Toggle Pills -->
             <div class="step-pill-group">
-              <button class="step-pill" data-step="1">1°</button>
-              <button class="step-pill active" data-step="5">5°</button>
-              <button class="step-pill" data-step="10">10°</button>
+              <button class="step-pill" data-step="1">1Â°</button>
+              <button class="step-pill active" data-step="5">5Â°</button>
+              <button class="step-pill" data-step="10">10Â°</button>
             </div>
           </div>
 
@@ -912,7 +921,7 @@ html, body {
                 </svg>
               </button>
 
-              <button class="dpad-button center-home" id="dpadCenter" title="Center Home (90°, 90°) [Space / Home]" aria-label="Center Home">
+              <button class="dpad-button center-home" id="dpadCenter" title="Center Home (90Â°, 90Â°) [Space / Home]" aria-label="Center Home">
                 CTR
               </button>
 
@@ -934,9 +943,9 @@ html, body {
 
           <!-- Angles Readout -->
           <div class="angles-readout-row">
-            <span>AZ: <strong id="footPanVal">90.0°</strong></span>
-            <span>EL: <strong id="footTiltVal">90.0°</strong></span>
-            <span style="color: var(--text-tertiary);">KEYS: [↑ ↓ ← →]</span>
+            <span>AZ: <strong id="footPanVal">90.0Â°</strong></span>
+            <span>EL: <strong id="footTiltVal">90.0Â°</strong></span>
+            <span style="color: var(--text-tertiary);">KEYS: [â†‘ â†“ â† â†’]</span>
           </div>
         </section>
 
@@ -978,6 +987,7 @@ html, body {
       const footTiltVal = document.getElementById('footTiltVal');
       const detectionList = document.getElementById('detectionList');
       const autotrackToggle = document.getElementById('autotrackToggle');
+      const autoscanToggle = document.getElementById('autoscanToggle');
       const btnCapture = document.getElementById('btnCapture');
       const btnCaptureText = document.getElementById('btnCaptureText');
       const toastNotice = document.getElementById('toastNotice');
@@ -1075,11 +1085,20 @@ html, body {
             autotrackToggle.checked = data.autotrack;
           }
 
+          // Auto-scan state
+          if (typeof data.autoscan === 'boolean' && autoscanToggle) {
+            autoscanToggle.checked = data.autoscan;
+            if (data.autoscan) {
+              liveBadgeText.textContent = 'Patrol Active';
+              liveBadge.className = 'live-badge live';
+            }
+          }
+
           // Pan / Tilt
           currentPan = parseFloat(data.pan_angle || 90.0);
           currentTilt = parseFloat(data.tilt_angle || 90.0);
-          const panStr = `${currentPan.toFixed(1)}°`;
-          const tiltStr = `${currentTilt.toFixed(1)}°`;
+          const panStr = `${currentPan.toFixed(1)}Â°`;
+          const tiltStr = `${currentTilt.toFixed(1)}Â°`;
           panAngleValue.textContent = panStr;
           tiltAngleValue.textContent = tiltStr;
           footPanVal.textContent = panStr;
@@ -1104,7 +1123,7 @@ html, body {
             const offX = tgt.x - 160;
             const offY = tgt.y - 120;
             overlayCoords.textContent = `X: ${tgt.x}  Y: ${tgt.y}`;
-            feedOffsetText.textContent = `ΔX: ${offX >= 0 ? '+' : ''}${offX}px  ΔY: ${offY >= 0 ? '+' : ''}${offY}px`;
+            feedOffsetText.textContent = `Î”X: ${offX >= 0 ? '+' : ''}${offX}px  Î”Y: ${offY >= 0 ? '+' : ''}${offY}px`;
 
             // Position reticle marker
             targetMarker.style.display = 'flex';
@@ -1116,10 +1135,10 @@ html, body {
             liveBadge.className = 'live-badge searching';
             liveBadgeText.textContent = 'Searching';
             targetNameValue.textContent = 'None';
-            targetConfValue.textContent = '—';
+            targetConfValue.textContent = 'â€”';
             overlayTargetLabel.textContent = 'Scanning Sky';
-            overlayCoords.textContent = 'X: —  Y: —';
-            feedOffsetText.textContent = 'ΔX: 0px  ΔY: 0px';
+            overlayCoords.textContent = 'X: â€”  Y: â€”';
+            feedOffsetText.textContent = 'Î”X: 0px  Î”Y: 0px';
             targetMarker.style.display = 'none';
           }
         } catch (err) {
@@ -1133,8 +1152,8 @@ html, body {
       function simulateStandAloneData() {
         simTick++;
         const isLocked = simTick % 4 !== 0;
-        const panStr = `${(90.0 + Math.sin(simTick / 4) * 6).toFixed(1)}°`;
-        const tiltStr = `${(90.0 + Math.cos(simTick / 5) * 5).toFixed(1)}°`;
+        const panStr = `${(90.0 + Math.sin(simTick / 4) * 6).toFixed(1)}Â°`;
+        const tiltStr = `${(90.0 + Math.cos(simTick / 5) * 5).toFixed(1)}Â°`;
         
         panAngleValue.textContent = panStr;
         tiltAngleValue.textContent = tiltStr;
@@ -1154,7 +1173,7 @@ html, body {
           const tx = Math.round(160 + Math.sin(simTick / 3) * 55);
           const ty = Math.round(120 + Math.cos(simTick / 4) * 35);
           overlayCoords.textContent = `X: ${tx}  Y: ${ty}`;
-          feedOffsetText.textContent = `ΔX: ${tx - 160 >= 0 ? '+' : ''}${tx - 160}px  ΔY: ${ty - 120 >= 0 ? '+' : ''}${ty - 120}px`;
+          feedOffsetText.textContent = `Î”X: ${tx - 160 >= 0 ? '+' : ''}${tx - 160}px  Î”Y: ${ty - 120 >= 0 ? '+' : ''}${ty - 120}px`;
 
           targetMarker.style.display = 'flex';
           targetMarker.style.left = `${(tx / 320) * 100}%`;
@@ -1165,9 +1184,9 @@ html, body {
           liveBadge.className = 'live-badge searching';
           liveBadgeText.textContent = 'Searching';
           targetNameValue.textContent = 'None';
-          targetConfValue.textContent = '—';
+          targetConfValue.textContent = 'â€”';
           overlayTargetLabel.textContent = 'Scanning Sky';
-          overlayCoords.textContent = 'X: —  Y: —';
+          overlayCoords.textContent = 'X: â€”  Y: â€”';
           targetMarker.style.display = 'none';
         }
       }
@@ -1201,7 +1220,7 @@ html, body {
                   <span class="item-time">${timeStr} UTC</span>
                 </div>
                 <div class="item-right">
-                  <span class="angles-stamp">${pan}° / ${tilt}°</span>
+                  <span class="angles-stamp">${pan}Â° / ${tilt}Â°</span>
                   <span class="confidence-pill">${conf}%</span>
                 </div>
               </div>`;
@@ -1230,14 +1249,14 @@ html, body {
           if (json.pan !== undefined) {
             currentPan = json.pan;
             currentTilt = json.tilt;
-            panAngleValue.textContent = `${currentPan.toFixed(1)}°`;
-            tiltAngleValue.textContent = `${currentTilt.toFixed(1)}°`;
-            footPanVal.textContent = `${currentPan.toFixed(1)}°`;
-            footTiltVal.textContent = `${currentTilt.toFixed(1)}°`;
+            panAngleValue.textContent = `${currentPan.toFixed(1)}Â°`;
+            tiltAngleValue.textContent = `${currentTilt.toFixed(1)}Â°`;
+            footPanVal.textContent = `${currentPan.toFixed(1)}Â°`;
+            footTiltVal.textContent = `${currentTilt.toFixed(1)}Â°`;
           }
-          showToast(`Scope moved ${direction.toUpperCase()} (${selectedStep}°)`);
+          showToast(`Scope moved ${direction.toUpperCase()} (${selectedStep}Â°)`);
         } catch (err) {
-          console.warn(`[AstroVision] /api/move fallback: ${direction} (${selectedStep}°)`, err);
+          console.warn(`[AstroVision] /api/move fallback: ${direction} (${selectedStep}Â°)`, err);
           // Local optimistic update
           if (direction === 'up') currentTilt = Math.min(180, currentTilt + selectedStep);
           if (direction === 'down') currentTilt = Math.max(0, currentTilt - selectedStep);
@@ -1245,11 +1264,11 @@ html, body {
           if (direction === 'right') currentPan = Math.min(180, currentPan + selectedStep);
           if (direction === 'center') { currentPan = 90.0; currentTilt = 90.0; }
 
-          panAngleValue.textContent = `${currentPan.toFixed(1)}°`;
-          tiltAngleValue.textContent = `${currentTilt.toFixed(1)}°`;
-          footPanVal.textContent = `${currentPan.toFixed(1)}°`;
-          footTiltVal.textContent = `${currentTilt.toFixed(1)}°`;
-          showToast(`Scope ${direction.toUpperCase()} [${selectedStep}°]`);
+          panAngleValue.textContent = `${currentPan.toFixed(1)}Â°`;
+          tiltAngleValue.textContent = `${currentTilt.toFixed(1)}Â°`;
+          footPanVal.textContent = `${currentPan.toFixed(1)}Â°`;
+          footTiltVal.textContent = `${currentTilt.toFixed(1)}Â°`;
+          showToast(`Scope ${direction.toUpperCase()} [${selectedStep}Â°]`);
         }
       }
 
@@ -1259,7 +1278,7 @@ html, body {
           document.querySelectorAll('.step-pill').forEach(p => p.classList.remove('active'));
           pill.classList.add('active');
           selectedStep = parseFloat(pill.getAttribute('data-step') || '5');
-          showToast(`Step size set to ${selectedStep}°`);
+          showToast(`Step size set to ${selectedStep}Â°`);
         });
       });
 
@@ -1319,6 +1338,26 @@ html, body {
         }
       });
 
+      // --- Auto Sky Patrol Toggle Switch Listener ---
+      if (autoscanToggle) {
+        autoscanToggle.addEventListener('change', async () => {
+          const isScanning = autoscanToggle.checked;
+          showToast(isScanning ? 'Auto Sky Patrol Started' : 'Auto Sky Patrol Paused');
+          try {
+            const res = await fetch(`/api/autoscan`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: isScanning })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            autoscanToggle.checked = !!data.autoscan;
+          } catch (err) {
+            console.warn('[AstroVision] /api/autoscan network feedback:', err);
+          }
+        });
+      }
+
       // --- Snapshot / Capture Button Listener ---
       btnCapture.addEventListener('click', async () => {
         btnCapture.classList.add('capturing');
@@ -1350,4 +1389,5 @@ html, body {
   </script>
 </body>
 </html>
+
 
