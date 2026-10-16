@@ -1,5 +1,5 @@
 """
-config.py — Central configuration for the Celestial Tracker.
+config.py — Central configuration for AstroVision (AV).
 
 All hardware pin assignments, servo limits, camera settings, and
 tuning constants live here so operators can adjust them in one place.

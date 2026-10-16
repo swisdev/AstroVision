@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tracker.py — Main entry point for the Celestial Tracker.
+tracker.py — Main entry point for AstroVision (AV).
 
 Orchestrates the vision pipeline, servo controller, and web server.
 
@@ -68,7 +68,7 @@ def _pick_target(detections: list) -> Detection | None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Celestial Tracker")
+    parser = argparse.ArgumentParser(description="AstroVision (AV) — Celestial Tracking System")
     parser.add_argument(
         "--no-servo", action="store_true",
         help="Disable servo output (for desktop development)",
@@ -76,7 +76,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # ── Initialise components ─────────────────────────────────────────
-    log.info("Starting Celestial Tracker …")
+    log.info("Starting AstroVision (AV) Celestial Tracker …")
 
     vision = VisionPipeline()
     servo: ServoController | None = None
