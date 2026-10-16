@@ -48,7 +48,7 @@ DEADZONE_PX = 5
 # ---------------------------------------------------------------------------
 # Camera / Frame Settings
 # ---------------------------------------------------------------------------
-CAMERA_INDEX   = 0          # /dev/video0
+CAMERA_INDEX   = int(os.getenv("CT_CAMERA", 0))  # /dev/video0 by default
 FRAME_WIDTH    = 320        # Downsampled capture width
 FRAME_HEIGHT   = 240        # Downsampled capture height
 FPS_LIMIT      = 10         # Max processing ticks per second

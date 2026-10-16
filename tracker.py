@@ -73,6 +73,10 @@ def main() -> None:
         "--no-servo", action="store_true",
         help="Disable servo output (for desktop development)",
     )
+    parser.add_argument(
+        "--camera", type=int, default=CAMERA_INDEX,
+        help="Camera device index (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     # ── Initialise components ─────────────────────────────────────────
@@ -88,14 +92,37 @@ def main() -> None:
 
     web_thread = start_server()
 
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+    # ── Camera Probe & Init ───────────────────────────────────────────
+    target_cam = args.camera
+    cap = cv2.VideoCapture(target_cam)
     if not cap.isOpened():
-        log.error("Cannot open camera %d. Exiting.", CAMERA_INDEX)
-        sys.exit(1)
+        log.warning("Camera index %d failed to open. Scanning indices 0–4 …", target_cam)
+        found_cam = False
+        for alt_idx in [0, 1, 2, 3, 4]:
+            if alt_idx == target_cam:
+                continue
+            test_cap = cv2.VideoCapture(alt_idx)
+            if test_cap.isOpened():
+                ret, _ = test_cap.read()
+                if ret:
+                    cap = test_cap
+                    target_cam = alt_idx
+                    found_cam = True
+                    log.info("✔ Successfully connected to camera at index %d!", target_cam)
+                    break
+                test_cap.release()
+
+        if not found_cam:
+            log.error("No working camera found at index %d or alternatives (0–4).", target_cam)
+            log.info("💡 TIP 1 (CSI Ribbon Camera on Pi 4): Run with the Raspberry Pi camera bridge:")
+            log.info("   libcamerify python3 tracker.py")
+            log.info("💡 TIP 2 (USB Camera): Check 'ls -l /dev/video*' to find the device index.")
+            sys.exit(1)
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
     cap.set(cv2.CAP_PROP_BUFFERSIZE,   1)  # minimise latency
-    log.info("Camera opened: %dx%d", FRAME_WIDTH, FRAME_HEIGHT)
+    log.info("Camera %d opened successfully: %dx%d", target_cam, FRAME_WIDTH, FRAME_HEIGHT)
 
     tick_interval = 1.0 / FPS_LIMIT
     start_time    = time.monotonic()
