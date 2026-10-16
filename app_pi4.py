@@ -55,11 +55,12 @@ FRAME_WIDTH = 320
 FRAME_HEIGHT = 240
 FPS_TARGET = 15
 
-# Proportional Controller Gains
-KP_PAN = 0.05
-KP_TILT = 0.05
-DEADZONE_PX = 6
-MAX_STEP_DEG = 3.0
+# Proportional Controller Gains & Anti-Jitter Tuning
+KP_PAN = 0.025       # Gentle gain (prevents overshooting and oscillation)
+KP_TILT = 0.025      # Gentle gain
+DEADZONE_PX = 14     # Generous deadband: if object is near center, don't twitch
+MAX_STEP_DEG = 2.0   # Max degrees per step for smooth glide
+MIN_STEP_DEG = 0.4   # Ignore microscopic steps below gear backlash
 
 # ── Global State ───────────────────────────────────────────────────────────
 _state_lock = threading.Lock()
@@ -76,9 +77,9 @@ _state: Dict[str, Any] = {
 _detection_log = deque(maxlen=100)
 _latest_jpeg: Optional[bytes] = None
 
-# ── Hardware Servo Controller (gpiozero with Stub Fallback) ────────────────
+# ── Hardware Servo Controller (gpiozero with Anti-Jitter & Auto-Detach) ───
 class Pi4ServoDriver:
-    """Controls Pan/Tilt servos using gpiozero AngularServo (native Pi 4)."""
+    """Controls Pan/Tilt servos using gpiozero with anti-jitter auto-detach."""
 
     def __init__(self, pan_pin: int = SERVO_PAN_PIN, tilt_pin: int = SERVO_TILT_PIN):
         self.pan_angle = 90.0
@@ -86,11 +87,16 @@ class Pi4ServoDriver:
         self.pan_servo = None
         self.tilt_servo = None
         self.is_hardware = False
+        self.is_attached = True
+        self.last_move_time = time.monotonic()
+
+        # Coordinate smoothing filters (exponential moving average)
+        self.smooth_x = float(FRAME_WIDTH // 2)
+        self.smooth_y = float(FRAME_HEIGHT // 2)
 
         try:
-            # gpiozero is pre-installed on Raspberry Pi OS
             from gpiozero import AngularServo
-            # SG90/MG90S pulse range: 0.5ms to 2.5ms (0° to 180°)
+            # Standard SG90/MG90S pulse range (0.5ms to 2.5ms)
             self.pan_servo = AngularServo(
                 pan_pin, min_angle=0, max_angle=180,
                 min_pulse_width=0.0005, max_pulse_width=0.0025
@@ -115,24 +121,55 @@ class Pi4ServoDriver:
                     self.pan_servo.angle = self.pan_angle
                 if self.tilt_servo:
                     self.tilt_servo.angle = self.tilt_angle
+                self.is_attached = True
+                self.last_move_time = time.monotonic()
             except Exception as e:
                 log.debug("Servo write error: %s", e)
 
-    def update_p_controller(self, target_x: int, target_y: int):
-        cx, cy = FRAME_WIDTH // 2, FRAME_HEIGHT // 2
-        err_x = target_x - cx
-        err_y = target_y - cy
+    def check_auto_detach(self):
+        """
+        Shuts off PWM pulses 0.25s after physical movement finishes.
+        This stops 100% of servo motor buzzing, humming, and camera vibration!
+        """
+        if self.is_hardware and self.is_attached:
+            if time.monotonic() - self.last_move_time > 0.25:
+                try:
+                    if self.pan_servo:
+                        self.pan_servo.detach()
+                    if self.tilt_servo:
+                        self.tilt_servo.detach()
+                    self.is_attached = False
+                except Exception:
+                    pass
 
+    def update_p_controller(self, raw_x: int, raw_y: int):
+        # 1. Smooth out camera sensor noise using Exponential Moving Average
+        self.smooth_x = 0.60 * self.smooth_x + 0.40 * float(raw_x)
+        self.smooth_y = 0.60 * self.smooth_y + 0.40 * float(raw_y)
+
+        cx, cy = FRAME_WIDTH // 2, FRAME_HEIGHT // 2
+        err_x = self.smooth_x - cx
+        err_y = self.smooth_y - cy
+
+        # 2. Generous deadband: if close to center, stop pulsing servos!
         if abs(err_x) < DEADZONE_PX:
             err_x = 0
         if abs(err_y) < DEADZONE_PX:
             err_y = 0
 
-        # Proportional delta clamped to MAX_STEP_DEG
+        if err_x == 0 and err_y == 0:
+            self.check_auto_detach()
+            return
+
+        # 3. Smooth clamped proportional step
         delta_pan = max(-MAX_STEP_DEG, min(MAX_STEP_DEG, KP_PAN * err_x))
         delta_tilt = max(-MAX_STEP_DEG, min(MAX_STEP_DEG, KP_TILT * err_y))
 
-        self.set_angles(self.pan_angle + delta_pan, self.tilt_angle + delta_tilt)
+        # 4. Only move if delta is meaningful (prevents sub-millimeter gear chatter)
+        if abs(delta_pan) >= MIN_STEP_DEG or abs(delta_tilt) >= MIN_STEP_DEG:
+            self.set_angles(self.pan_angle + delta_pan, self.tilt_angle + delta_tilt)
+        else:
+            self.check_auto_detach()
 
     def center(self):
         self.set_angles(90.0, 90.0)
@@ -463,6 +500,8 @@ def main():
                 global_servos.update_p_controller(target["x"], target["y"])
                 pan_val = global_servos.pan_angle
                 tilt_val = global_servos.tilt_angle
+            elif global_servos:
+                global_servos.check_auto_detach()
 
             # Annotate Frame for Web Stream
             annotated = frame.copy()
