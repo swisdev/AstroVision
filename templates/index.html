@@ -766,16 +766,7 @@ html, body {
         <div class="autotrack-control">
           <label for="autotrackToggle" class="autotrack-label">Auto-Tracking</label>
           <label class="toggle-switch">
-            <input type="checkbox" id="autotrackToggle" checked>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <!-- Auto Sky Patrol Mode Toggle Switch -->
-        <div class="autotrack-control">
-          <label for="autoscanToggle" class="autotrack-label">Auto Sky Patrol</label>
-          <label class="toggle-switch">
-            <input type="checkbox" id="autoscanToggle">
+            <input type="checkbox" id="autotrackToggle">
             <span class="toggle-slider"></span>
           </label>
         </div>
@@ -1235,6 +1226,11 @@ html, body {
         if (buttonElem) {
           buttonElem.classList.add('active');
           setTimeout(() => buttonElem.classList.remove('active'), 180);
+        }
+
+        // Manual move pauses auto-tracking
+        if (autotrackToggle && autotrackToggle.checked) {
+          autotrackToggle.checked = false;
         }
 
         const url = `/api/move?direction=${encodeURIComponent(direction)}&step=${selectedStep}`;
