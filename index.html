@@ -887,11 +887,17 @@ html, body {
               <span>Scope Orientation</span>
             </div>
 
-            <!-- Step Size Toggle Pills -->
-            <div class="step-pill-group">
-              <button class="step-pill" data-step="1">1Â°</button>
-              <button class="step-pill active" data-step="5">5Â°</button>
-              <button class="step-pill" data-step="10">10Â°</button>
+            <!-- Step Size Toggle Pills & Invert Axis -->
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <div class="step-pill-group">
+                <button class="step-pill" data-step="1">1Â°</button>
+                <button class="step-pill active" data-step="5">5Â°</button>
+                <button class="step-pill" data-step="10">10Â°</button>
+              </div>
+              <div class="step-pill-group">
+                <button class="step-pill" id="invertPanBtn" title="Invert Pan direction if Left/Right is reversed">â‡„ Flip Pan</button>
+                <button class="step-pill" id="invertTiltBtn" title="Invert Tilt direction if Up/Down is reversed">â‡… Flip Tilt</button>
+              </div>
             </div>
           </div>
 
@@ -932,11 +938,11 @@ html, body {
             </div>
           </div>
 
-          <!-- Angles Readout -->
+          <!-- Angles Readout & Hardware Pin Telemetry -->
           <div class="angles-readout-row">
             <span>AZ: <strong id="footPanVal">90.0Â°</strong></span>
             <span>EL: <strong id="footTiltVal">90.0Â°</strong></span>
-            <span style="color: var(--text-tertiary);">KEYS: [â†‘ â†“ â† â†’]</span>
+            <span style="color: var(--text-tertiary);" id="servoPinsInfo">Pan: GPIO 17 | Tilt: GPIO 18</span>
           </div>
         </section>
 
@@ -978,7 +984,11 @@ html, body {
       const footTiltVal = document.getElementById('footTiltVal');
       const detectionList = document.getElementById('detectionList');
       const autotrackToggle = document.getElementById('autotrackToggle');
-      const autoscanToggle = document.getElementById('autoscanToggle');
+      const invertPanBtn = document.getElementById('invertPanBtn');
+      const invertTiltBtn = document.getElementById('invertTiltBtn');
+      const servoPinsInfo = document.getElementById('servoPinsInfo');
+      let invertPan = false;
+      let invertTilt = false;
       const btnCapture = document.getElementById('btnCapture');
       const btnCaptureText = document.getElementById('btnCaptureText');
       const toastNotice = document.getElementById('toastNotice');
@@ -1076,13 +1086,17 @@ html, body {
             autotrackToggle.checked = data.autotrack;
           }
 
-          // Auto-scan state
-          if (typeof data.autoscan === 'boolean' && autoscanToggle) {
-            autoscanToggle.checked = data.autoscan;
-            if (data.autoscan) {
-              liveBadgeText.textContent = 'Patrol Active';
-              liveBadge.className = 'live-badge live';
-            }
+          // Hardware Pin and Driver Telemetry
+          if (data.driver && servoPinsInfo) {
+            servoPinsInfo.textContent = `Pan: GPIO ${data.pan_pin} | Tilt: GPIO ${data.tilt_pin} (${data.driver})`;
+          }
+          if (typeof data.invert_pan === 'boolean') {
+            invertPan = data.invert_pan;
+            if (invertPanBtn) invertPanBtn.classList.toggle('active', invertPan);
+          }
+          if (typeof data.invert_tilt === 'boolean') {
+            invertTilt = data.invert_tilt;
+            if (invertTiltBtn) invertTiltBtn.classList.toggle('active', invertTilt);
           }
 
           // Pan / Tilt
@@ -1233,12 +1247,12 @@ html, body {
           autotrackToggle.checked = false;
         }
 
-        const url = `/api/move?direction=${encodeURIComponent(direction)}&step=${selectedStep}`;
+        const url = `/api/move?direction=${encodeURIComponent(direction)}&step=${selectedStep}&invert_pan=${invertPan}&invert_tilt=${invertTilt}`;
         try {
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ direction: direction, step: selectedStep })
+            body: JSON.stringify({ direction: direction, step: selectedStep, invert_pan: invertPan, invert_tilt: invertTilt })
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const json = await res.json();
@@ -1334,23 +1348,26 @@ html, body {
         }
       });
 
-      // --- Auto Sky Patrol Toggle Switch Listener ---
-      if (autoscanToggle) {
-        autoscanToggle.addEventListener('change', async () => {
-          const isScanning = autoscanToggle.checked;
-          showToast(isScanning ? 'Auto Sky Patrol Started' : 'Auto Sky Patrol Paused');
+      // --- Invert Pan & Tilt Direction Handlers ---
+      if (invertPanBtn) {
+        invertPanBtn.addEventListener('click', async () => {
+          invertPan = !invertPan;
+          invertPanBtn.classList.toggle('active', invertPan);
+          showToast(invertPan ? 'Pan direction reversed (Flipped)' : 'Pan direction normal');
           try {
-            const res = await fetch(`/api/autoscan`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ enabled: isScanning })
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-            autoscanToggle.checked = !!data.autoscan;
-          } catch (err) {
-            console.warn('[AstroVision] /api/autoscan network feedback:', err);
-          }
+            await fetch('/api/toggle_invert?axis=pan', { method: 'POST' });
+          } catch(e) {}
+        });
+      }
+
+      if (invertTiltBtn) {
+        invertTiltBtn.addEventListener('click', async () => {
+          invertTilt = !invertTilt;
+          invertTiltBtn.classList.toggle('active', invertTilt);
+          showToast(invertTilt ? 'Tilt direction reversed (Flipped)' : 'Tilt direction normal');
+          try {
+            await fetch('/api/toggle_invert?axis=tilt', { method: 'POST' });
+          } catch(e) {}
         });
       }
 

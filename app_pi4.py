@@ -7,8 +7,8 @@ Operating Modes:
    - The servos are completely powered down (0 PWM signal) while waiting.
    - It ONLY moves when a command signal is received from the web dashboard
      (e.g. Left, Right, Up, Down, Center).
-   - Once received, it turns the servo on, moves to the new angle, holds
-     for 0.22s to settle, and IMMEDIATELY turns the signal off (value=None).
+   - Once received, it powers the servo via hardware DMA, moves to the angle,
+     holds for 0.25s to settle, and turns the signal off (0 µs).
    - Absolute zero hum, zero vibration, zero jitter.
 
 2. AUTO-TRACKING MODE (Enabled via website toggle):
@@ -21,6 +21,7 @@ import argparse
 import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -52,8 +53,8 @@ signal.signal(signal.SIGINT, _signal_handler)
 signal.signal(signal.SIGTERM, _signal_handler)
 
 # ── Pin & Resolution Settings ──────────────────────────────────────────────
-SERVO_PAN_PIN = int(os.getenv("AV_PAN_PIN", 17))    # BCM GPIO 17
-SERVO_TILT_PIN = int(os.getenv("AV_TILT_PIN", 18))  # BCM GPIO 18
+SERVO_PAN_PIN = int(os.getenv("AV_PAN_PIN", 17))    # BCM GPIO 17 (Pin 11)
+SERVO_TILT_PIN = int(os.getenv("AV_TILT_PIN", 18))  # BCM GPIO 18 (Pin 12)
 
 FRAME_WIDTH = 320
 FRAME_HEIGHT = 240
@@ -66,6 +67,8 @@ _state: Dict[str, Any] = {
     "autotrack": False,         # Starts in quiet MANUAL MODE by default
     "pan_angle": 90.0,
     "tilt_angle": 90.0,
+    "invert_pan": False,
+    "invert_tilt": False,
     "target": None,
     "fps": 0.0,
     "uptime_s": 0,
@@ -75,94 +78,123 @@ _detection_log = deque(maxlen=100)
 _latest_jpeg: Optional[bytes] = None
 
 
-# ── Hardware Servo Driver (On-Demand Pulse & Immediate Kill) ───────────────
+def angle_to_us(angle: float) -> int:
+    """
+    Maps 0.0° - 180.0° to safe pulse width in microseconds (600µs to 2400µs).
+    Center (90.0°) is exactly 1500µs.
+    """
+    clamped = max(0.0, min(180.0, float(angle)))
+    return int(600 + (clamped / 180.0) * (2400 - 600))
+
+
+# ── Hardware Servo Driver (pigpio Hardware DMA + gpiozero Fallback) ────────
 class Pi4ServoDriver:
     """
-    Zero-Jitter On-Demand Servo Driver.
-    
-    In Manual Mode:
-      - Does NOT emit continuous pulses.
-      - When a move is requested:
-          1. Turn on PWM output
-          2. Move to target angle
-          3. Sleep briefly (0.22s) so the physical horn reaches the angle
-          4. Turn OFF PWM output completely (value=None)
-      - The motor coils de-energize and mechanical friction holds position.
-      - Jitter is physically impossible because there is zero signal on the wire.
+    Precision Zero-Jitter Dual-Mode Servo Driver.
+    Primary: pigpio direct DMA (PCM clock -t 0, zero audio conflict, 1µs precision).
+    Secondary fallback: gpiozero AngularServo.
     """
 
     def __init__(self, pan_pin: int = SERVO_PAN_PIN, tilt_pin: int = SERVO_TILT_PIN):
+        self.pan_pin = pan_pin
+        self.tilt_pin = tilt_pin
         self.pan_angle = 90.0
         self.tilt_angle = 90.0
+        self.pi = None
         self.pan_servo = None
         self.tilt_servo = None
-        self.is_hardware = False
-        self._move_lock = threading.Lock()
+        self.mode = "stub"
+        self._lock = threading.Lock()
 
+        # 1. Attempt to connect to or launch pigpio daemon with PCM clock (-t 0)
+        try:
+            import pigpio
+            self.pi = pigpio.pi()
+            if not self.pi.connected:
+                log.info("Launching pigpio daemon with PCM clock (-t 0) to prevent audio conflicts...")
+                subprocess.run(["sudo", "pigpiod", "-t", "0"], check=False)
+                time.sleep(0.5)
+                self.pi = pigpio.pi()
+
+            if self.pi.connected:
+                self.mode = "pigpio"
+                log.info("✔ pigpio hardware DMA PWM active.")
+                log.info("✔ Assigned Pan to GPIO %d (Pin 11) & Tilt to GPIO %d (Pin 12)", self.pan_pin, self.tilt_pin)
+                # Center servos cleanly
+                self.pulse_move(self.pan_angle, self.tilt_angle, hold_s=0.35)
+                return
+        except Exception as exc:
+            log.info("pigpio unavailable (%s), trying gpiozero fallback...", exc)
+
+        # 2. Fallback to gpiozero
         try:
             from gpiozero import AngularServo
-
-            # Attempt to use pigpio hardware DMA factory if available
-            pin_factory = None
-            try:
-                from gpiozero.pins.pigpio import PiGPIOFactory
-                pin_factory = PiGPIOFactory()
-                log.info("✔ Using pigpio hardware PWM backend.")
-            except Exception:
-                log.info("ℹ Using standard gpiozero backend.")
-
-            kwargs = {
-                "min_angle": 0,
-                "max_angle": 180,
-                "min_pulse_width": 0.0005,
-                "max_pulse_width": 0.0025,
-            }
-            if pin_factory:
-                kwargs["pin_factory"] = pin_factory
-
-            self.pan_servo = AngularServo(pan_pin, **kwargs)
-            self.tilt_servo = AngularServo(tilt_pin, **kwargs)
-            self.is_hardware = True
-            log.info("✔ Servos initialized on GPIO %d (Pan) & %d (Tilt)", pan_pin, tilt_pin)
-
-            # Center once at boot, then immediately cut power to the pins
-            self.pulse_move(self.pan_angle, self.tilt_angle, hold_s=0.30)
-
+            self.pan_servo = AngularServo(
+                self.pan_pin, min_angle=0, max_angle=180,
+                min_pulse_width=0.0006, max_pulse_width=0.0024
+            )
+            self.tilt_servo = AngularServo(
+                self.tilt_pin, min_angle=0, max_angle=180,
+                min_pulse_width=0.0006, max_pulse_width=0.0024
+            )
+            self.mode = "gpiozero"
+            log.info("✔ Initialized gpiozero on GPIO %d (Pan) & %d (Tilt)", self.pan_pin, self.tilt_pin)
+            self.pulse_move(self.pan_angle, self.tilt_angle, hold_s=0.35)
+            return
         except Exception as exc:
-            log.warning("Hardware servos unavailable (%s). Running in simulation mode.", exc)
+            log.warning("Physical servo hardware not accessible (%s). Running in simulation mode.", exc)
+            self.mode = "simulation"
 
-    def pulse_move(self, pan: float, tilt: float, hold_s: float = 0.22):
+    def pulse_move(self, pan: float, tilt: float, hold_s: float = 0.25):
         """
-        Turns the servos on, sets angles, waits for physical travel,
-        then immediately shuts off PWM output (value = None).
+        Executes a clean on-demand move to (pan, tilt).
+        Holds pulse for hold_s to let the physical arm travel,
+        then silences the pulse completely to eliminate idle jitter.
         """
-        with self._move_lock:
+        with self._lock:
             self.pan_angle = max(0.0, min(180.0, float(pan)))
             self.tilt_angle = max(0.0, min(180.0, float(tilt)))
+            pan_us = angle_to_us(self.pan_angle)
+            tilt_us = angle_to_us(self.tilt_angle)
 
-            if self.is_hardware:
+            log.info("🎯 Move -> Pan: %.1f° (%d µs on GPIO %d) | Tilt: %.1f° (%d µs on GPIO %d)",
+                     self.pan_angle, pan_us, self.pan_pin,
+                     self.tilt_angle, tilt_us, self.tilt_pin)
+
+            if self.mode == "pigpio" and self.pi and self.pi.connected:
                 try:
-                    # 1. Turn on and send angle pulse
+                    self.pi.set_servo_pulsewidth(self.pan_pin, pan_us)
+                    self.pi.set_servo_pulsewidth(self.tilt_pin, tilt_us)
+                    time.sleep(hold_s)
+                    # Turn off pulses completely (0 = off in pigpio)
+                    self.pi.set_servo_pulsewidth(self.pan_pin, 0)
+                    self.pi.set_servo_pulsewidth(self.tilt_pin, 0)
+                except Exception as e:
+                    log.error("pigpio write error: %s", e)
+
+            elif self.mode == "gpiozero":
+                try:
                     if self.pan_servo:
                         self.pan_servo.angle = self.pan_angle
                     if self.tilt_servo:
                         self.tilt_servo.angle = self.tilt_angle
-
-                    # 2. Hold pulse long enough for physical movement
                     time.sleep(hold_s)
-
-                    # 3. Kill signal completely
                     if self.pan_servo:
                         self.pan_servo.value = None
                     if self.tilt_servo:
                         self.tilt_servo.value = None
                 except Exception as e:
-                    log.debug("Servo pulse error: %s", e)
+                    log.error("gpiozero write error: %s", e)
 
     def power_off(self):
-        """Ensure PWM is silenced."""
-        with self._move_lock:
-            if self.is_hardware:
+        with self._lock:
+            if self.mode == "pigpio" and self.pi and self.pi.connected:
+                try:
+                    self.pi.set_servo_pulsewidth(self.pan_pin, 0)
+                    self.pi.set_servo_pulsewidth(self.tilt_pin, 0)
+                except Exception:
+                    pass
+            elif self.mode == "gpiozero":
                 try:
                     if self.pan_servo:
                         self.pan_servo.value = None
@@ -173,7 +205,12 @@ class Pi4ServoDriver:
 
     def close(self):
         self.power_off()
-        if self.is_hardware:
+        if self.mode == "pigpio" and self.pi:
+            try:
+                self.pi.stop()
+            except Exception:
+                pass
+        elif self.mode == "gpiozero":
             try:
                 if self.pan_servo:
                     self.pan_servo.close()
@@ -441,6 +478,9 @@ def api_status():
     with _state_lock:
         data = dict(_state)
     data["autoscan"] = data["autotrack"]
+    data["pan_pin"] = SERVO_PAN_PIN
+    data["tilt_pin"] = SERVO_TILT_PIN
+    data["driver"] = global_servos.mode if global_servos else "none"
     return jsonify(data)
 
 @app.route("/api/detections")
@@ -453,9 +493,9 @@ def api_move():
     """
     Triggered ONLY when a user presses a direction button on the website.
     1. Pauses auto-tracking so user has manual control.
-    2. Powers on the servos and moves to the requested angle.
-    3. Holds for 0.22s to settle.
-    4. Powers OFF the PWM signal completely (value = None).
+    2. Powers on the servos via hardware DMA and moves to the requested angle.
+    3. Holds for 0.25s to settle.
+    4. Powers OFF the PWM signal completely (0 µs).
     5. Waits silently for the next button press. Zero jitter.
     """
     # Manual press disables auto-tracking
@@ -465,33 +505,73 @@ def api_move():
         data = request.get_json(silent=True) or request.form or {}
         direction = data.get("direction", request.args.get("direction", "")).lower()
         step = float(data.get("step", request.args.get("step", 5.0)))
+        if "invert_pan" in data:
+            _state["invert_pan"] = bool(data["invert_pan"])
+        if "invert_tilt" in data:
+            _state["invert_tilt"] = bool(data["invert_tilt"])
     else:
         direction = request.args.get("direction", "").lower()
         step = float(request.args.get("step", 5.0))
+        if "invert_pan" in request.args:
+            _state["invert_pan"] = request.args.get("invert_pan", "").lower() in ("1", "true")
+        if "invert_tilt" in request.args:
+            _state["invert_tilt"] = request.args.get("invert_tilt", "").lower() in ("1", "true")
+
+    inv_p = _state.get("invert_pan", False)
+    inv_t = _state.get("invert_tilt", False)
 
     with _state_lock:
         pan = _state["pan_angle"]
         tilt = _state["tilt_angle"]
 
-        if direction == "up":
-            tilt = min(180.0, tilt + step)
-        elif direction == "down":
-            tilt = max(0.0, tilt - step)
+        # Calculate target angles with inversion handling
+        if direction == "right":
+            pan = max(0.0, min(180.0, pan - step if inv_p else pan + step))
         elif direction == "left":
-            pan = max(0.0, pan - step)
-        elif direction == "right":
-            pan = min(180.0, pan + step)
+            pan = max(0.0, min(180.0, pan + step if inv_p else pan - step))
+        elif direction == "up":
+            tilt = max(0.0, min(180.0, tilt - step if inv_t else tilt + step))
+        elif direction == "down":
+            tilt = max(0.0, min(180.0, tilt + step if inv_t else tilt - step))
         elif direction in ("center", "home"):
             pan, tilt = 90.0, 90.0
 
         _state["pan_angle"] = round(pan, 2)
         _state["tilt_angle"] = round(tilt, 2)
 
-    # Move physically: turn on -> move -> hold 0.22s -> turn off completely!
+    # Move physically: send DMA pulse -> hold 0.25s -> cut pulse to 0!
     if global_servos:
-        global_servos.pulse_move(pan, tilt, hold_s=0.22)
+        global_servos.pulse_move(pan, tilt, hold_s=0.25)
 
-    return jsonify({"status": "ok", "direction": direction, "pan": pan, "tilt": tilt})
+    return jsonify({
+        "status": "ok",
+        "direction": direction,
+        "pan": pan,
+        "tilt": tilt,
+        "pan_pin": SERVO_PAN_PIN,
+        "tilt_pin": SERVO_TILT_PIN,
+        "invert_pan": inv_p,
+        "invert_tilt": inv_t,
+        "driver": global_servos.mode if global_servos else "none",
+    })
+
+@app.route("/api/toggle_invert", methods=["GET", "POST"])
+def api_toggle_invert():
+    axis = request.args.get("axis", "").lower()
+    if request.is_json and "axis" in (request.get_json(silent=True) or {}):
+        axis = request.get_json()["axis"].lower()
+
+    with _state_lock:
+        if axis == "pan":
+            _state["invert_pan"] = not _state.get("invert_pan", False)
+        elif axis == "tilt":
+            _state["invert_tilt"] = not _state.get("invert_tilt", False)
+        res = {
+            "status": "ok",
+            "invert_pan": _state.get("invert_pan", False),
+            "invert_tilt": _state.get("invert_tilt", False),
+        }
+    return jsonify(res)
 
 @app.route("/api/toggle_autotrack", methods=["GET", "POST"])
 @app.route("/api/autoscan", methods=["GET", "POST"])
@@ -532,6 +612,8 @@ def main():
     parser = argparse.ArgumentParser(description="AstroVision Pi 4 Autonomous Celestial Tracker")
     parser.add_argument("--no-servo", action="store_true", help="Run without physical servo hardware")
     parser.add_argument("--port", type=int, default=8080, help="Web dashboard port (default: 8080)")
+    parser.add_argument("--pan-pin", type=int, default=SERVO_PAN_PIN, help="BCM GPIO pin for Pan (default: 17)")
+    parser.add_argument("--tilt-pin", type=int, default=SERVO_TILT_PIN, help="BCM GPIO pin for Tilt (default: 18)")
     args = parser.parse_args()
 
     log.info("══════════════════════════════════════════════════════════")
@@ -540,7 +622,7 @@ def main():
 
     # 1. Initialize Servos
     if not args.no_servo:
-        global_servos = Pi4ServoDriver()
+        global_servos = Pi4ServoDriver(pan_pin=args.pan_pin, tilt_pin=args.tilt_pin)
     else:
         log.info("Physical servos disabled (--no-servo mode).")
 
